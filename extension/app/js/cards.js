@@ -40,7 +40,7 @@ function processIntervals(interv){
 }
 
 function replaceAudioTags(html) {
-	return html.replace(/\[sound:([^\]]*)\]/, (match, filename) => {
+	return html.replace(/\[sound:([^\]]*)\]/g, (match, filename) => {
 		let mediaType = "audio";
 		let extension = '.' + filename.split('.').pop();
 		let mimeType = (MIME[extension] || "").split('/')[0];
@@ -54,8 +54,50 @@ function buildCardHTML(css, content){
 	return "<style>"+css+"</style>"+replaceAudioTags(content);
 }
 
+function decodeBase64Utf8(b64){
+	return new TextDecoder().decode(Uint8Array.from(atob(b64), (c)=>c.charCodeAt(0)));
+}
+
+// Card templates often load helpers from Anki's media folder (<script src="_mc.js">).
+// Those files only exist inside Anki, so fetch them through AnkiConnect and inline them.
+async function inlineMediaScripts(html){
+	const tpl=document.createElement("template");
+	tpl.innerHTML=html;
+	const scripts=Array.from(tpl.content.querySelectorAll("script[src]"));
+	await Promise.all(scripts.map(async (script)=>{
+		const src=script.getAttribute("src");
+		if(/^[a-z][a-z0-9+.-]*:|^\/\//i.test(src)) return; // remote URL, leave it
+		try{
+			const data=await ankiConnectInvoke("retrieveMediaFile", {filename: decodeURIComponent(src.split(/[?#]/)[0])});
+			if(data){
+				script.removeAttribute("src");
+				script.textContent=decodeBase64Utf8(data);
+			}
+		}catch(e){
+			console.warn("AnkiTab: could not load media script", src, e);
+		}
+	}));
+	return tpl.innerHTML;
+}
+
+let renderSeq=0;
+
+async function renderInSandbox(content){
+	const seq=++renderSeq;
+	const html=await inlineMediaScripts(buildCardHTML(getCurrentCard().css, content));
+	if(seq!==renderSeq) return; // a newer render (e.g. the answer) started meanwhile
+	// Build the card under an invisible <div> too, which makes it easy to find
+	// the media that has to be fetched from AnkiConnect.
+	document.querySelector("#flashcard").innerHTML=html;
+	// Render it in the sandbox, where the card's JavaScript runs.
+	document.querySelector("#flashcardSandbox").contentWindow.postMessage({
+		'command': 'render', 'html': html
+	}, '*');
+	retrieveMedia();
+}
+
 function retrieveMedia(){
-	document.querySelector("#flashcard").querySelectorAll("[src]").forEach((elem)=>{
+	document.querySelector("#flashcard").querySelectorAll("[src]:not(script)").forEach((elem)=>{
 		let filename=elem.src.split('/').pop()
 		let fileExtension='.'+filename.split('.').pop()
 		ankiConnectInvoke("retrieveMediaFile", {filename:decodeURIComponent(filename)}).then((data)=>{
@@ -69,17 +111,7 @@ function retrieveMedia(){
 
 
 function renderQuestion(){
-	// First build the question under an invisible <div>, which makes it
-	// easier to update the HTML of the question, since we can call
-	// AnkiConnect from outside the sandbox and update the HTML according
-	// to the responses.
-	document.querySelector("#flashcard").innerHTML=buildCardHTML(getCurrentCard().css, getCurrentCard().question);
-	// Now render the question's HTML in the sandbox. This will make it
-	// possible to run JavaScript on the cards.
-	document.querySelector("#flashcardSandbox").contentWindow.postMessage({
-		'command': 'render', 'html': document.querySelector("#flashcard").innerHTML
-	}, '*');
-	retrieveMedia();
+	renderInSandbox(getCurrentCard().question);
 	document.querySelector("#deckName").innerText=getCurrentCard().deckName;
 	//Buttons
 	document.querySelector("#answerButtons").innerHTML='<button class="btn btn-primary btn-lg" id="showAnswerButton" title="Space">Show Answer</button>';
@@ -95,17 +127,7 @@ function keyboardShowAnswer(e){
 
 function renderAnswer(){
 	document.removeEventListener('keyup', keyboardShowAnswer);
-	// First build the answer under an invisible <div>, which makes it
-	// easier to update the HTML of the answer, since we can call
-	// AnkiConnect from outside the sandbox and update the HTML according
-	// to the responses.
-	document.querySelector("#flashcard").innerHTML=buildCardHTML(getCurrentCard().css, getCurrentCard().answer);
-	// Now render the answer's HTML in the sandbox. This will make it
-	// possible to run JavaScript on the cards.
-	document.querySelector("#flashcardSandbox").contentWindow.postMessage({
-		'command': 'render', 'html': document.querySelector("#flashcard").innerHTML
-	}, '*');
-	retrieveMedia();
+	renderInSandbox(getCurrentCard().answer);
 	//Buttons
 	document.querySelector("#answerButtons").innerHTML='';
 	let intervals=getCurrentCard().buttons;
@@ -136,6 +158,7 @@ function keyboardAnswer(e){
 
 function answerQuestion(answer){
 	document.removeEventListener('keyup', keyboardAnswer);
+	renderSeq++;
 	document.querySelector("#flashcard").innerHTML='';
 	document.querySelector("#flashcardSandbox").contentWindow.postMessage({
 		'command': 'render', 'html': document.querySelector("#flashcard").innerHTML
