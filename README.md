@@ -22,7 +22,15 @@
 
 ## Install
 - [**Chrome** extension][link-cws] [<img valign="middle" src="https://img.shields.io/chrome-web-store/v/ihoaepdiibjbifnhcjoaddgcnfgjmjdk.svg?label=%20">][link-cws]
-- [**Firefox** add-on](https://github.com/corollari/ankiTab/issues/3)
+- **Firefox** add-on (Manifest V3, Firefox 128+): see [Firefox install](#firefox-install)
+
+## Firefox install
+1. Install [Anki](https://apps.ankiweb.net/) and the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on, and keep Anki running.
+2. Build the package with `bash build.sh` (produces `ankitab-firefox.xpi`).
+3. Load it:
+   - **Temporary (any Firefox):** open `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on…* → pick `extension/manifest.json` after running `bash build.sh -f`. It stays until Firefox restarts.
+   - **Permanent:** release Firefox only installs signed add-ons. Either sign the xpi as unlisted on [addons.mozilla.org](https://addons.mozilla.org/developers/) (`web-ext sign --channel=unlisted`), or use Firefox Developer Edition / Nightly / ESR with `xpinstall.signatures.required = false` in `about:config` and install the xpi via *about:addons → ⚙ → Install Add-on From File*.
+4. If the new tab says AnkiTab needs permission, click *Grant permission* (or allow it under *about:addons → AnkiTab → Permissions*).
 
 ## Build
 ##### Setup:

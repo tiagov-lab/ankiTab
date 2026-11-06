@@ -1,6 +1,8 @@
-chrome.browserAction.onClicked.addListener(function (tab) { //Fired when the user clicks the extension's icon
-      chrome.tabs.create({ url: "about://newtab" });
-      //chrome.tabs.create({ url: "app/index.html" });
+// `action` is the MV3 name (Firefox MV3), `browserAction` the MV2 one (Chrome manifest)
+const actionApi = chrome.action || chrome.browserAction;
+
+actionApi.onClicked.addListener(function () { //Fired when the user clicks the extension's icon
+	chrome.tabs.create({}); // opens the (overridden) new tab page
 });
 
 chrome.runtime.onInstalled.addListener(function() {
@@ -20,5 +22,3 @@ chrome.runtime.onInstalled.addListener(function() {
 		chrome.storage.local.set(defaults, function() {}); //Set missing default values
 	});
 });
-
-chrome.runtime.setUninstallURL("https://goo.gl/forms/QsvZzGcRfQTPZ66E2");

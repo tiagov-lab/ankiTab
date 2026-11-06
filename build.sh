@@ -22,6 +22,6 @@ while getopts "ifc" opt; do
   esac
 done
 cp manifests/firefoxManifest.json extension/manifest.json
-(cd extension && zip -r ../firefox.zip .)
+(cd extension && zip -r ../firefox.zip . && cp ../firefox.zip ../ankitab-firefox.xpi)
 cp manifests/chromeManifest.json extension/manifest.json
 (cd extension && zip -r ../chrome.zip .)

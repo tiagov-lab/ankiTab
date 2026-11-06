@@ -13,7 +13,13 @@ window.addEventListener('message', async function(event) {
               document.getElementsByTagName("head")[0].appendChild(tag);
             }
             else {
-              eval(scripts[i].innerHTML);
+              // Firefox has no manifest sandbox, so extension CSP blocks eval there;
+              // don't let a card script abort rendering/media loading
+              try {
+                eval(scripts[i].innerHTML);
+              } catch (e) {
+                console.warn('AnkiTab: could not run card script', e);
+              }
             }
           }
           resolve();

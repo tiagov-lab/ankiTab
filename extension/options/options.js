@@ -13,7 +13,10 @@ chrome.storage.local.get(null, function(result) { //Get everything stored in chr
 document.addEventListener('DOMContentLoaded', function () {
 	document.querySelector('#optionsForm').addEventListener('submit', saved);
 	document.querySelector('#interleavingDisabled').addEventListener('input', ()=>{
-		document.querySelector("#interleavingTrigger").disabled=document.querySelector("#interleavingDisabled").checked;
+		const trigger=document.querySelector("#interleavingTrigger");
+		if(trigger){
+			trigger.disabled=document.querySelector("#interleavingDisabled").checked;
+		}
 	});
   document.querySelector('#tickall').addEventListener('click', (e)=>tickAll(true, e));
 	document.querySelector('#untickall').addEventListener('click', (e)=>tickAll(false, e));
@@ -67,7 +70,7 @@ ankiConnectInvoke("deckNames").then((decks)=>{
 	chrome.storage.local.get(["excludedDecks"], function(result) {
 		decks.sort().forEach((d)=>{
 			let name=d.split("::").map((d, i, a)=>i==a.length-1?d:"&nbsp;&nbsp;&nbsp;").join('');
-			document.querySelector("#decks").innerHTML+=('<div class="form-check"><label class="form-check-label" for="'+d+'"><input type="checkbox" class="form-check-input deck" id="'+d+'" ' + (result.excludedDecks.indexOf(d)==-1?'checked':'') +'> '+name+'</label></div>');
+			document.querySelector("#decks").innerHTML+=('<div class="form-check"><label class="form-check-label" for="'+d+'"><input type="checkbox" class="form-check-input deck" id="'+d+'" ' + ((result.excludedDecks||[]).indexOf(d)==-1?'checked':'') +'> '+name+'</label></div>');
 		});
 	});
 });

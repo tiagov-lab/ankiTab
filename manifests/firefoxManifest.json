@@ -1,12 +1,21 @@
 {
 	"name": "AnkiTab",
-	"version": "0.5.3",
+	"version": "0.6.0",
 	"description": "Replace new tab page with Anki flashcards",
-	"manifest_version": 2,
-	"background":{
-		"scripts":["bg.js"]
-        },
-	"browser_action": {
+	"manifest_version": 3,
+	"browser_specific_settings": {
+		"gecko": {
+			"id": "ankitab@corollari.github.io",
+			"strict_min_version": "128.0",
+			"data_collection_permissions": {
+				"required": ["none"]
+			}
+		}
+	},
+	"background": {
+		"scripts": ["bg.js"]
+	},
+	"action": {
 		"default_icon": {
 			"16": "icons/16.png",
 			"24": "icons/24.png",
@@ -20,14 +29,20 @@
 		"128": "icons/128.png"
 	},
 	"permissions": [
-		"storage",
-		"http://localhost/"
+		"storage"
 	],
-	"chrome_url_overrides" : {
+	"host_permissions": [
+		"http://127.0.0.1:8765/*",
+		"http://localhost:8765/*"
+	],
+	"content_security_policy": {
+		"extension_pages": "script-src 'self'; object-src 'self'"
+	},
+	"chrome_url_overrides": {
 		"newtab": "app/index.html"
 	},
 	"options_ui": {
-		"page":  "options/index.html",
-		"browser_style": true
+		"page": "options/index.html",
+		"open_in_tab": true
 	}
 }
