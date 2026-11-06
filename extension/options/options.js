@@ -20,6 +20,15 @@ function getValue(elem) {
 	switch (elem.type) {
 		case "checkbox":
 			return elem.checked;
+		case "number": {
+			let value = parseInt(elem.value, 10);
+			if (isNaN(value)) value = 0;
+			const min = parseInt(elem.min, 10);
+			const max = parseInt(elem.max, 10);
+			if (!isNaN(min) && value < min) value = min;
+			if (!isNaN(max) && value > max) value = max;
+			return value;
+		}
 		default:
 			return elem.value;
 	}

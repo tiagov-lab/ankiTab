@@ -96,6 +96,17 @@ html.dark-theme a {
 		</label>
 	</div>
 	<hr>
+	<h4>Batch mode</h4>
+	<div class="form-group">
+		<label for="batchSize">Cards per new tab (0 = no limit)</label>
+		<input type="number" class="form-control save" id="batchSize" min="0" max="200" step="1">
+	</div>
+	<div class="form-group">
+		<label for="batchBreakMinutes">After a batch, keep new tabs free for this many minutes (0 = off)</label>
+		<input type="number" class="form-control save" id="batchBreakMinutes" min="0" max="1440" step="1">
+	</div>
+	<small class="form-text">Once you answer this many cards, the tab switches to search and your top sites.</small>
+	<hr>
 	<h4>When you're done</h4>
 	<div class="form-check">
 		<label class="form-check-label" for="doneShowStats">

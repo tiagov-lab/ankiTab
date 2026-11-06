@@ -257,8 +257,80 @@ async function finish(container) {
 	if (token !== renderToken) return; // a newer render owns the container now
 }
 
+// Fonts from the card's @font-face rules arrive as raw bytes (see cards.js) and
+// are registered here once. A render waits for faces still loading so the card
+// does not paint in a fallback font and then reflow.
+const fontFaces = new Map(); // key -> load promise
+const FONT_TIMEOUT = 3000;
+
+// Firefox's font sanitizer rejects TrueType collections (.ttc), which Anki
+// desktop (Chromium) accepts and renders with the collection's first font.
+// Rebuild that first font as a standalone sfnt so both engines show the same.
+function ttcToSfnt(buffer) {
+  const src = new DataView(buffer);
+  if (buffer.byteLength < 16 || src.getUint32(0) !== 0x74746366) return buffer; // 'ttcf'
+  const fontOffset = src.getUint32(12);
+  const numTables = src.getUint16(fontOffset + 4);
+  const tables = [];
+  for (let i = 0; i < numTables; i++) {
+    const rec = fontOffset + 12 + i * 16;
+    tables.push({
+      tag: src.getUint32(rec),
+      checksum: src.getUint32(rec + 4),
+      offset: src.getUint32(rec + 8),
+      length: src.getUint32(rec + 12),
+    });
+  }
+  const headerSize = 12 + numTables * 16;
+  const total = tables.reduce((sum, t) => sum + ((t.length + 3) & ~3), headerSize);
+  const out = new ArrayBuffer(total);
+  const dst = new DataView(out);
+  const bytes = new Uint8Array(out);
+  // sfntVersion, numTables, searchRange, entrySelector, rangeShift
+  bytes.set(new Uint8Array(buffer, fontOffset, 12), 0);
+  let cursor = headerSize;
+  tables.forEach((t, i) => {
+    const rec = 12 + i * 16;
+    dst.setUint32(rec, t.tag);
+    dst.setUint32(rec + 4, t.checksum);
+    dst.setUint32(rec + 8, cursor);
+    dst.setUint32(rec + 12, t.length);
+    bytes.set(new Uint8Array(buffer, t.offset, t.length), cursor);
+    cursor += (t.length + 3) & ~3;
+  });
+  return out;
+}
+
+function addFont(key, family, descriptors, data) {
+  if (fontFaces.has(key)) return;
+  let face;
+  try {
+    data = ttcToSfnt(data);
+    face = new FontFace(family, data, descriptors || {});
+  } catch (e) {
+    console.warn('AnkiTab: invalid font', family, e);
+    return;
+  }
+  const loading = face.load().then(() => {
+    document.fonts.add(face);
+  }).catch((e) => {
+    console.warn('AnkiTab: font failed to load', family, e);
+  });
+  fontFaces.set(key, loading);
+}
+
+function fontsSettled() {
+  if (!fontFaces.size) return Promise.resolve();
+  return Promise.race([
+    Promise.all(fontFaces.values()),
+    new Promise((resolve) => setTimeout(resolve, FONT_TIMEOUT)),
+  ]);
+}
+
 async function render(html, options = {}) {
 	const token = ++renderToken;
+	await fontsSettled();
+	if (token !== renderToken) return;
 	const container = document.querySelector('#qa');
 	// A new card (or its back) invalidates any pending auto-flip.
 	cancelAutoFlip();
@@ -368,6 +440,9 @@ window.addEventListener('message', async function(event) {
   switch(event.data.command) {
   case 'theme':
     applyTheme(event.data.dark);
+    break;
+  case 'font':
+    addFont(event.data.key, event.data.family, event.data.descriptors, event.data.data);
     break;
   case 'render':
     window.mutex = render(event.data.html, {answer: !!event.data.answer, autoFlip: !!event.data.autoFlip});

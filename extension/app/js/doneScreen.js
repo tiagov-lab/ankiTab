@@ -167,6 +167,27 @@ async function addFallback(parent, settings) {
 	if (withTopSites) addTopSites(parent);
 }
 
+function batchHeading(batch) {
+	if (batch.onBreak) return 'Break time';
+	const count = Number(batch.count) || 0;
+	return count + (count === 1 ? ' card done' : ' cards done');
+}
+
+function batchSub(batch) {
+	if (!batch.onBreak) return 'The rest can wait.';
+	const when = new Date(Number(batch.freeUntil) || Date.now());
+	return 'Cards are back at ' + when.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+}
+
+function addBatchContinue(parent, batch) {
+	const button = el('button', 'anki-btn batch-continue', batch.onBreak ? 'Study anyway' : 'Keep studying');
+	button.type = 'button';
+	button.addEventListener('click', () => {
+		if (typeof batch.onContinue === 'function') batch.onContinue();
+	});
+	parent.appendChild(button);
+}
+
 function addLinks(parent) {
 	const links = el('div', 'done-links');
 	const options = el('button', '', 'Options');
@@ -191,6 +212,7 @@ function addLinks(parent) {
 
 export async function showDoneScreen(options = {}) {
 	const blank = !!options.blank;
+	const batch = options.batch;
 	document.title = 'AnkiTab';
 
 	const overlay = document.getElementById('overlay');
@@ -198,7 +220,16 @@ export async function showDoneScreen(options = {}) {
 
 	const inner = el('div', 'overlay-inner done-inner');
 
-	if (!blank) {
+	if (!blank && batch) {
+		inner.appendChild(el('h1', '', batchHeading(batch)));
+		inner.appendChild(el('p', 'batch-sub', batchSub(batch)));
+		addBatchContinue(inner, batch);
+		const stats = document.createElement('div');
+		stats.className = 'done-stats';
+		inner.appendChild(stats);
+		fillStats(stats, settings);
+		addLinks(inner);
+	} else if (!blank) {
 		inner.appendChild(el('h1', '', 'Congratulations! You have finished for now.'));
 		const stats = document.createElement('div');
 		stats.className = 'done-stats';

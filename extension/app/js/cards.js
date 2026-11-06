@@ -13,6 +13,8 @@ let settings = Object.assign({}, DEFAULT_SETTINGS);
 let settingsWatched = false;
 let keyboardAttached = false;
 let dueCountRequest = 0;
+let batchCount = 0; // cards answered in this tab
+let batchOff = false; // "keep studying" was picked; no more cap in this tab
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -128,6 +130,70 @@ async function resolveMedia(html) {
 	return tpl.innerHTML;
 }
 
+// Note types load fonts from Anki's media folder with @font-face
+// (src: url('_yumin.ttf')). Kanji fonts are 5-25 MB each, so inlining them into
+// every card's css would re-send and re-parse them on each render. Instead the
+// local @font-face rules are stripped from the css and each font file is sent to
+// the sandbox once, where it is registered with the FontFace API.
+const FONT_FACE_RULE = /@font-face\s*\{[^}]*\}/gi;
+const sentFonts = new Map(); // "family|filename|weight|style" -> promise
+
+function cssValue(block, property) {
+	const match = block.match(new RegExp("(?:^|[;{\\s])" + property + "\\s*:\\s*([^;}]+)", "i"));
+	return match ? match[1].trim() : "";
+}
+
+function extractLocalFontFaces(css) {
+	const faces = [];
+	const stripped = (css || "").replace(FONT_FACE_RULE, (block) => {
+		const family = cssValue(block, "font-family").replace(/^(['"])(.*)\1$/, "$2").trim();
+		const src = cssValue(block, "src");
+		const urls = Array.from(src.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi), (m) => m[2].trim());
+		const local = urls.find((url) => !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(url));
+		if (!family || !local) return block; // remote or data: fonts load on their own
+		const descriptors = {};
+		const weight = cssValue(block, "font-weight");
+		const style = cssValue(block, "font-style");
+		if (weight) descriptors.weight = weight;
+		if (style) descriptors.style = style;
+		faces.push({family, filename: decodeURIComponent(local.split(/[?#]/)[0]), descriptors});
+		return "";
+	});
+	return {css: stripped, faces};
+}
+
+function base64ToBuffer(base64) {
+	const binary = atob(base64);
+	const bytes = new Uint8Array(binary.length);
+	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+	return bytes.buffer;
+}
+
+// Resolves once the font has been posted (or failed); the sandbox itself waits
+// for the face to finish loading before it shows a card that uses it.
+function sendFontToSandbox(face) {
+	const key = [face.family, face.filename, face.descriptors.weight || "", face.descriptors.style || ""].join("|");
+	if (sentFonts.has(key)) return sentFonts.get(key);
+	const promise = ankiConnectInvoke("retrieveMediaFile", {filename: face.filename}).then(async (data) => {
+		if (!data) throw new Error("no media data");
+		const buffer = base64ToBuffer(data);
+		await frameReady;
+		const frame = sandbox();
+		if (!frame || !frame.contentWindow) throw new Error("no sandbox");
+		frame.contentWindow.postMessage({command: "font", key, family: face.family, descriptors: face.descriptors, data: buffer}, "*", [buffer]);
+	}).catch((e) => {
+		console.warn("AnkiTab: could not load font", face.filename, e);
+		sentFonts.delete(key);
+	});
+	sentFonts.set(key, promise);
+	return promise;
+}
+
+function prepareCardCss(css) {
+	const {css: stripped, faces} = extractLocalFontFaces(css);
+	return {css: stripped, fonts: Promise.all(faces.map(sendFontToSandbox))};
+}
+
 let renderSeq = 0;
 
 // main.js sets the iframe's src after this module loads; wait for that page, not
@@ -146,7 +212,9 @@ async function renderInSandbox(content, isAnswer) {
 	const seq = ++renderSeq;
 	const current = getCurrentCard();
 	if (!current) return;
-	const html = await resolveMedia(await inlineMediaScripts(buildCardHTML(current.css, content)));
+	const prepared = prepareCardCss(current.css);
+	const html = await resolveMedia(await inlineMediaScripts(buildCardHTML(prepared.css, content)));
+	await prepared.fonts;
 	await frameReady;
 	if (seq !== renderSeq) return; // a newer render (e.g. the answer) started meanwhile
 	postThemeToSandbox();
@@ -173,16 +241,23 @@ function loadSettings() {
 	});
 }
 
+function batchLimit() {
+	return batchOff ? 0 : (Number(settings.batchSize) || 0);
+}
+
 function watchSettings() {
 	if (settingsWatched) return;
 	settingsWatched = true;
 	chrome.storage.onChanged.addListener((changes, area) => {
 		if (area !== 'local') return;
 		let refreshCounts = false;
+		let refreshBatch = false;
 		for (const key in changes) {
 			settings[key] = changes[key].newValue;
 			if (key === 'showDueCounts') refreshCounts = true;
+			if (key === 'batchSize') refreshBatch = true;
 		}
+		if (refreshBatch) renderBatchProgress();
 		if (refreshCounts && card) fetchDueCounts(card.deckName);
 	});
 }
@@ -196,6 +271,34 @@ function clearDueCounts() {
 	if (!line) return;
 	line.replaceChildren();
 	line.hidden = true;
+}
+
+function renderBatchProgress() {
+	const container = document.querySelector("#batchProgress");
+	if (!container) return;
+	const limit = batchLimit();
+	if (limit <= 0) {
+		container.replaceChildren();
+		container.hidden = true;
+		container.removeAttribute("title");
+		container.classList.remove("text");
+		return;
+	}
+	container.replaceChildren();
+	container.classList.toggle("text", limit > 12);
+	if (limit <= 12) {
+		for (let index = 0; index < limit; index++) {
+			const dot = document.createElement("span");
+			dot.className = "batch-dot";
+			if (index < batchCount) dot.classList.add("filled");
+			if (index === batchCount) dot.classList.add("current");
+			container.appendChild(dot);
+		}
+	} else {
+		container.textContent = (batchCount + 1) + " / " + limit;
+	}
+	container.title = "card " + (batchCount + 1) + " of " + limit + " in this tab";
+	container.hidden = false;
 }
 
 function renderDueCounts(stats) {
@@ -303,11 +406,12 @@ async function renderQuestion() {
 	document.querySelector("#deckName").textContent = card.deckName || "";
 	setTitle(card.deckName);
 	showQuestionControls();
+	renderBatchProgress();
 	renderInSandbox(card.question, false);
 	fetchDueCounts(card.deckName);
 	// Warm the media cache with the back side, so flipping does not wait for it.
 	try {
-		resolveMedia(buildCardHTML(card.css, card.answer)).catch(() => {});
+		resolveMedia(buildCardHTML(prepareCardCss(card.css).css, card.answer)).catch(() => {});
 	} catch (e) {
 		// Prefetch is best effort; the answer render resolves its media itself.
 	}
@@ -358,6 +462,18 @@ async function answerQuestion(answer) {
 		handleActionError(e, "could not save the answer");
 		return;
 	}
+	batchCount++;
+	const limit = batchLimit();
+	if (limit > 0 && batchCount >= limit) {
+		const breakMinutes = Number(settings.batchBreakMinutes) || 0;
+		if (breakMinutes > 0) {
+			const freeUntil = Date.now() + breakMinutes * 60000;
+			settings.batchFreeUntil = freeUntil;
+			chrome.storage.local.set({batchFreeUntil: freeUntil});
+		}
+		showBatchDone();
+		return;
+	}
 	await continueStudy();
 }
 
@@ -371,6 +487,27 @@ function studyError(e) {
 	} else {
 		handleActionError(e);
 	}
+}
+
+function showBatchDone(opts) {
+	const onBreak = !!opts?.onBreak;
+	showDoneScreen({
+		batch: {
+			count: batchCount,
+			onBreak,
+			freeUntil: settings.batchFreeUntil,
+			onContinue: () => {
+				batchOff = true;
+				const overlay = document.querySelector("#overlay");
+				if (overlay) {
+					overlay.hidden = true;
+					overlay.replaceChildren();
+				}
+				if (onBreak) startStudy();
+				else continueStudy();
+			},
+		},
+	});
 }
 
 async function continueStudy() {
@@ -456,6 +593,7 @@ export async function undo() {
 	if (state === 'busy') return;
 	try {
 		await ankiConnectInvoke("guiUndo");
+		batchCount = Math.max(0, batchCount - 1);
 		const next = await getCard();
 		if (next) {
 			card = next;
@@ -529,6 +667,13 @@ export default async function start() {
 		state = 'busy';
 		clearDueCounts();
 		showDoneScreen({blank: true});
+		return;
+	}
+
+	if ((Number(settings.batchSize) || 0) > 0 && Date.now() < (Number(settings.batchFreeUntil) || 0)) {
+		state = 'busy';
+		clearDueCounts();
+		showBatchDone({onBreak: true});
 		return;
 	}
 	await startStudy();

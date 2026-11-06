@@ -11,7 +11,10 @@ html.dark-theme {
 	background: #121212;
 }
 
-body.card {
+/* Plain .card, not body.card: this beats bootstrap's .card by order, while the
+   card's own .card rules (margin: auto, max-width, background...) still win the
+   way they do in Anki desktop. */
+.card {
 	display: block;
 	box-sizing: border-box;
 	min-height: calc(100vh - 40px);
@@ -21,6 +24,13 @@ body.card {
 	background: var(--bkg-color, #ffffff);
 	color: var(--text-color, #212529);
 	overflow-wrap: break-word;
+}
+
+/* Dark theme beats the card's own light colours (e.g. a cream .card background),
+   while the card keeps control of its layout. */
+html.dark-theme body.card {
+	background: var(--bkg-color);
+	color: var(--text-color);
 }
 
 #qa {

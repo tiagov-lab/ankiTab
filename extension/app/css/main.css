@@ -148,6 +148,49 @@ body.app-body {
 	color: var(--muted);
 }
 
+/* Batch progress: dots fill as cards are answered. */
+.batch-progress {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 5px;
+	margin-bottom: 4px;
+	min-height: 7px;
+}
+
+.batch-progress.text {
+	font-size: 12px;
+	opacity: 0.7;
+	font-variant-numeric: tabular-nums;
+	line-height: 1;
+}
+
+.batch-dot {
+	box-sizing: border-box;
+	width: 7px;
+	height: 7px;
+	border-radius: 50%;
+	border: 1px solid currentColor;
+	background: transparent;
+	opacity: 0.45;
+	transition: background-color 150ms ease, opacity 150ms ease;
+}
+
+.batch-dot.filled {
+	background: currentColor;
+	opacity: 0.8;
+}
+
+.batch-dot.current {
+	opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.batch-dot {
+		transition: none;
+	}
+}
+
 /* Anki-style neutral buttons. */
 .anki-btn {
 	padding: 6px 14px;
@@ -329,6 +372,16 @@ body.app-body {
 /* Done screen */
 .done-inner h1 {
 	margin-bottom: 1.25rem;
+}
+
+.batch-sub {
+	opacity: 0.7;
+	margin-bottom: 1rem;
+}
+
+.batch-continue {
+	display: block;
+	margin: 8px auto 16px;
 }
 
 .done-stats {

@@ -1,2 +1,4 @@
 *.zip
 *.xpi
+node_modules/
+coverage/

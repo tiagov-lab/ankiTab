@@ -14,6 +14,9 @@ export const DEFAULT_SETTINGS = {
 	doneSearchUrl: "https://duckduckgo.com/?q=%s",
 	showDueCounts: true,
 	autoFlipChoice: true,
+	batchSize: 0,
+	batchBreakMinutes: 0,
+	batchFreeUntil: 0,
 };
 
 // Returns every setting, with defaults filled in for anything not stored yet.
