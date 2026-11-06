@@ -1,8 +1,5 @@
-[link-cws]: https://chrome.google.com/webstore/detail/ankitab/ihoaepdiibjbifnhcjoaddgcnfgjmjdk "Version published on Chrome Web Store"
-[link-amo]: https://addons.mozilla.org/en-US/firefox/addon/ankitab/ "Version published on Mozilla Add-ons"
-
 <h1 align="center">
-  <img src="https://raw.githubusercontent.com/corollari/ankiTab/master/promo/icon.png" width="64"></a>
+  <img src="promo/icon.png" width="64">
   <br>
   AnkiTab
   <br>
@@ -12,59 +9,86 @@
 
 <p align="center">
   <a href="#install">Install</a> •
+  <a href="#features">Features</a> •
+  <a href="#keyboard">Keyboard</a> •
   <a href="#build">Build</a> •
-  <a href="#credits">Credits</a> •
-  <a href="#to-do">TO-DO</a> •
+  <a href="#tests">Tests</a> •
   <a href="#license">License</a>
 </p>
 
-![screenshot](https://raw.githubusercontent.com/corollari/ankiTab/master/promo/screenshot.png)
+![question](promo/screenshots/question.png)
+
+Every new tab shows the card Anki would show you next. Answer it the way you would in Anki desktop and the review lands in your collection right away, through the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on.
 
 ## Install
-- [**Chrome** extension][link-cws] [<img valign="middle" src="https://img.shields.io/chrome-web-store/v/ihoaepdiibjbifnhcjoaddgcnfgjmjdk.svg?label=%20">][link-cws]
-- **Firefox** add-on (Manifest V3, Firefox 128+): see [Firefox install](#firefox-install)
 
-## Firefox install
-1. Install [Anki](https://apps.ankiweb.net/) and the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on, and keep Anki running.
-2. Build the package with `bash build.sh` (produces `ankitab-firefox.xpi`).
-3. Load it:
-   - **Temporary (any Firefox):** open `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on…* → pick `extension/manifest.json` after running `bash build.sh -f`. It stays until Firefox restarts.
-   - **Permanent (signed):** run `bash sign.sh`. It signs the build with mozilla on the unlisted channel using the AMO api keys in `~/.config/amo/env` (`WEB_EXT_API_KEY`, `WEB_EXT_API_SECRET`), running web-ext in docker, and writes `ankitab-<version>-signed.xpi`. Bump `version` in `manifests/firefoxManifest.json` first: AMO refuses a version it has already signed.
-   - **Permanent (other ways):** release Firefox only installs signed add-ons. Either sign the xpi as unlisted on [addons.mozilla.org](https://addons.mozilla.org/developers/) (`web-ext sign --channel=unlisted`), or use Firefox Developer Edition / Nightly / ESR with `xpinstall.signatures.required = false` in `about:config` and install the xpi via *about:addons → ⚙ → Install Add-on From File*.
-4. If the new tab says AnkiTab needs permission, click *Grant permission* (or allow it under *about:addons → AnkiTab → Permissions*).
+1. Install [Anki](https://apps.ankiweb.net/) and the [AnkiConnect](https://ankiweb.net/shared/info/2055492159) add-on. Keep Anki running.
+2. **Firefox** (128+): download the latest signed `ankitab-<version>.xpi` from [Releases](https://github.com/tiagov-lab/ankiTab/releases) and open it in Firefox (or drag it onto a Firefox window).
+3. **Chrome / Chromium**: build it (see [Build](#build)), open `chrome://extensions`, turn on *Developer mode* and *Load unpacked* the `extension/` folder after `bash build.sh -c`.
+4. On first launch, click *Grant permission* so the extension can reach AnkiConnect on `127.0.0.1:8765`.
+
+## Features
+
+- **Anki-native reviewer**: Again / Hard / Good / Easy with next intervals, due counts (new + learning + review), card templates, css, fonts, media, MathJax and card javascript run like in Anki desktop.
+- **Batch mode**: each new tab asks for *n* cards, then gets out of your way with search and your top sites. Optionally keep new tabs card-free for a while after a batch.
+- **Multiple choice cards**: picking an option shows the answer.
+- **Deck rotation**: interleave reviews across decks, exclude the ones you don't want on a new tab.
+- **Light, dark or system theme**.
+- **Done screen**: today's stats, cards due tomorrow, web search and top sites.
+- Edit the note in Anki, undo, suspend, bury and sync from the *More* menu.
+
+| answer | batch progress (dark) |
+| --- | --- |
+| ![answer](promo/screenshots/answer.png) | ![batch progress](promo/screenshots/batch-progress-dark.png) |
+| **batch done** | **break between batches** |
+| ![batch done](promo/screenshots/batch-done.png) | ![break](promo/screenshots/break-dark.png) |
+
+<details>
+<summary>options page</summary>
+
+![options](promo/screenshots/options.png)
+</details>
+
+## Keyboard
+
+| key | action |
+| --- | --- |
+| `space` / `enter` | show answer, then answer *Good* |
+| `1` – `4` | Again / Hard / Good / Easy |
+| `e` | edit the note in Anki |
+| `r` / `F5` | replay audio |
+| `ctrl+z` | undo |
+| `@` | suspend card |
+| `-` | bury card |
 
 ## Build
-##### Setup:
+
 ```bash
-git clone https://github.com/corollari/ankiTab.git
+git clone https://github.com/tiagov-lab/ankiTab.git
 cd ankiTab
+bash build.sh       # firefox.zip, chrome.zip and ankitab-firefox.xpi
+bash build.sh -f    # copy the firefox manifest into extension/ (load unpacked / about:debugging)
+bash build.sh -c    # same for chrome
+bash build.sh -i    # regenerate icons from promo/icon.png
 ```
 
-##### Build .zip packages for Firefox and Chrome:
+Release Firefox only installs add-ons signed by Mozilla. For local testing, load `extension/manifest.json` from `about:debugging#/runtime/this-firefox` after `bash build.sh -f` (it stays until Firefox restarts), or use Firefox Developer Edition / Nightly with `xpinstall.signatures.required = false`.
+
+## Tests
+
+The test suite uses vitest with jsdom and runs in docker (no local node needed):
+
 ```bash
-bash build.sh
+bash test.sh              # run all tests
+bash test.sh --coverage   # with coverage
 ```
 
-##### Prepare the extension to be loaded unpacked into Firefox:
-```bash
-bash build.sh -f
-```
-
-##### Prepare the extension to be loaded unpacked into Chrome:
-```bash
-bash build.sh -c
-```
-
-##### Build the images (only necessary after changing the icon):
-```bash
-bash build.sh -i
-```
+Screenshots in `promo/screenshots/` are generated with Playwright against a fake AnkiConnect: `python3 tools/screenshots.py`.
 
 ## Credits
-The main icon used in the extension comes from [Open Iconic](https://useiconic.com/open).
 
-## TO-DO
-- [ ] Use a standalone web version of Anki instead of relying on AnkiConnect
+Forked from [corollari/ankiTab](https://github.com/corollari/ankiTab). The main icon comes from [Open Iconic](https://useiconic.com/open).
 
 ## License
+
 The Unlicense
