@@ -1,12 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {
-	startOfAnkiDay,
-	formatDuration,
-	searchUrl,
-	batchHeading,
-	batchSub,
-	showDoneScreen,
-} from '../extension/app/js/doneScreen.js';
+import {batchHeading, batchSub, showDoneScreen} from '../extension/app/js/doneScreen.js';
+import {startOfAnkiDay} from '../extension/app/js/done/stats.js';
 import {stubLocation, restoreLocation, sleep} from './helpers/dom.js';
 
 const anki = vi.hoisted(() => ({invoke: vi.fn()}));
@@ -45,73 +39,6 @@ async function render(options) {
 	await sleep(0);
 	return document.getElementById('overlay');
 }
-
-describe('startOfAnkiDay', () => {
-	it('uses 4am of the same day after 4am', () => {
-		const now = new Date(2026, 10, 6, 10, 30, 0);
-		const start = new Date(startOfAnkiDay(now));
-		expect(start.getFullYear()).toBe(2026);
-		expect(start.getMonth()).toBe(10);
-		expect(start.getDate()).toBe(6);
-		expect(start.getHours()).toBe(4);
-		expect(start.getMinutes()).toBe(0);
-	});
-
-	it('uses 4am of the previous day before 4am', () => {
-		const now = new Date(2026, 10, 6, 2, 30, 0);
-		const start = new Date(startOfAnkiDay(now));
-		expect(start.getDate()).toBe(5);
-		expect(start.getHours()).toBe(4);
-	});
-
-	it('treats exactly 4am as the start of the new day', () => {
-		const now = new Date(2026, 10, 6, 4, 0, 0);
-		const start = new Date(startOfAnkiDay(now));
-		expect(start.getDate()).toBe(6);
-	});
-});
-
-describe('formatDuration', () => {
-	it('says less than a minute for short durations', () => {
-		expect(formatDuration(0)).toBe('less than a minute');
-		expect(formatDuration(29 * 1000)).toBe('less than a minute');
-	});
-
-	it('formats minutes', () => {
-		expect(formatDuration(60 * 1000)).toBe('1m');
-		expect(formatDuration(5 * 60 * 1000)).toBe('5m');
-		expect(formatDuration(59 * 60 * 1000)).toBe('59m');
-	});
-
-	it('rounds partial minutes', () => {
-		expect(formatDuration(90 * 1000)).toBe('2m');
-	});
-
-	it('formats hours and minutes', () => {
-		expect(formatDuration(60 * 60 * 1000)).toBe('1h 0m');
-		expect(formatDuration(90 * 60 * 1000)).toBe('1h 30m');
-		expect(formatDuration(125 * 60 * 1000)).toBe('2h 5m');
-	});
-});
-
-describe('searchUrl', () => {
-	it('replaces %s in a template and encodes the query', () => {
-		expect(searchUrl('https://example.com/?q=%s', 'a b&c')).toBe('https://example.com/?q=a%20b%26c');
-	});
-
-	it('replaces every %s', () => {
-		expect(searchUrl('https://example.com/%s/%s', 'x')).toBe('https://example.com/x/x');
-	});
-
-	it('falls back to duckduckgo when the template has no %s', () => {
-		expect(searchUrl('https://example.com/?q=', 'hello')).toBe('https://duckduckgo.com/?q=hello');
-	});
-
-	it('falls back to duckduckgo for an empty template', () => {
-		expect(searchUrl('', 'hello')).toBe('https://duckduckgo.com/?q=hello');
-		expect(searchUrl(undefined, 'hi there')).toBe('https://duckduckgo.com/?q=hi%20there');
-	});
-});
 
 describe('batchHeading', () => {
 	it('counts finished cards in singular and plural', () => {
