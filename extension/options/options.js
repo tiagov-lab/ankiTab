@@ -6,7 +6,7 @@ const form = document.querySelector("#optionsForm");
 const alertBox = document.querySelector(".alert");
 let alertTimer = null;
 
-function setValue(elem, value) {
+export function setValue(elem, value) {
 	switch (elem.type) {
 		case "checkbox":
 			elem.checked = !!value;
@@ -16,7 +16,7 @@ function setValue(elem, value) {
 	}
 }
 
-function getValue(elem) {
+export function getValue(elem) {
 	switch (elem.type) {
 		case "checkbox":
 			return elem.checked;
@@ -152,11 +152,6 @@ async function init() {
 	form.addEventListener("submit", saved);
 	document.querySelector("#tickall").addEventListener("click", (event) => tickAll(true, event));
 	document.querySelector("#untickall").addEventListener("click", (event) => tickAll(false, event));
-
-	const rate = document.querySelector("#rateLink");
-	if (navigator.userAgent.indexOf("Firefox") !== -1) {
-		rate.href = "https://addons.mozilla.org/en-US/firefox/addon/ankitab/";
-	}
 
 	let names = [];
 	try {

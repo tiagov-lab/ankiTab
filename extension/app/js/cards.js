@@ -39,11 +39,11 @@ function postThemeToSandbox() {
 	frame.contentWindow.postMessage({command: 'theme', dark}, '*');
 }
 
-function bufferToText(base64) {
+export function bufferToText(base64) {
 	return new TextDecoder().decode(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
 }
 
-function replaceAudioTags(html) {
+export function replaceAudioTags(html) {
 	return html.replace(/\[sound:([^\]]*)\]/g, (match, filename) => {
 		let mediaType = "audio";
 		const extension = '.' + filename.split('.').pop();
@@ -54,13 +54,13 @@ function replaceAudioTags(html) {
 	});
 }
 
-function buildCardHTML(css, content) {
+export function buildCardHTML(css, content) {
 	return "<style>" + css + "</style>" + replaceAudioTags(content);
 }
 
 // Card templates sometimes load helpers from Anki's media folder (<script src="_mc.js">).
 // Those files only exist inside Anki, so fetch them through AnkiConnect and inline them.
-async function inlineMediaScripts(html) {
+export async function inlineMediaScripts(html) {
 	const tpl = document.createElement("template");
 	tpl.innerHTML = html;
 	const scripts = Array.from(tpl.content.querySelectorAll("script[src]"));
@@ -88,7 +88,7 @@ async function inlineMediaScripts(html) {
 const MEDIA_CACHE_LIMIT = 200;
 const mediaCache = new Map();
 
-function getMediaDataUri(filename) {
+export function getMediaDataUri(filename) {
 	const cached = mediaCache.get(filename);
 	if (cached) return cached;
 	const promise = ankiConnectInvoke("retrieveMediaFile", {filename}).then((data) => {
@@ -112,7 +112,7 @@ function getMediaDataUri(filename) {
 // Inline every local src (img, audio, video, source, embed...) as a data URI.
 // Anything that already has a scheme is left alone; a file that cannot be
 // fetched keeps its original src.
-async function resolveMedia(html) {
+export async function resolveMedia(html) {
 	const tpl = document.createElement("template");
 	tpl.innerHTML = html;
 	const elements = Array.from(tpl.content.querySelectorAll("[src]"))
@@ -138,12 +138,12 @@ async function resolveMedia(html) {
 const FONT_FACE_RULE = /@font-face\s*\{[^}]*\}/gi;
 const sentFonts = new Map(); // "family|filename|weight|style" -> promise
 
-function cssValue(block, property) {
+export function cssValue(block, property) {
 	const match = block.match(new RegExp("(?:^|[;{\\s])" + property + "\\s*:\\s*([^;}]+)", "i"));
 	return match ? match[1].trim() : "";
 }
 
-function extractLocalFontFaces(css) {
+export function extractLocalFontFaces(css) {
 	const faces = [];
 	const stripped = (css || "").replace(FONT_FACE_RULE, (block) => {
 		const family = cssValue(block, "font-family").replace(/^(['"])(.*)\1$/, "$2").trim();
@@ -162,7 +162,7 @@ function extractLocalFontFaces(css) {
 	return {css: stripped, faces};
 }
 
-function base64ToBuffer(base64) {
+export function base64ToBuffer(base64) {
 	const binary = atob(base64);
 	const bytes = new Uint8Array(binary.length);
 	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
@@ -171,7 +171,7 @@ function base64ToBuffer(base64) {
 
 // Resolves once the font has been posted (or failed); the sandbox itself waits
 // for the face to finish loading before it shows a card that uses it.
-function sendFontToSandbox(face) {
+export function sendFontToSandbox(face) {
 	const key = [face.family, face.filename, face.descriptors.weight || "", face.descriptors.style || ""].join("|");
 	if (sentFonts.has(key)) return sentFonts.get(key);
 	const promise = ankiConnectInvoke("retrieveMediaFile", {filename: face.filename}).then(async (data) => {
@@ -189,7 +189,7 @@ function sendFontToSandbox(face) {
 	return promise;
 }
 
-function prepareCardCss(css) {
+export function prepareCardCss(css) {
 	const {css: stripped, faces} = extractLocalFontFaces(css);
 	return {css: stripped, fonts: Promise.all(faces.map(sendFontToSandbox))};
 }
@@ -241,7 +241,7 @@ function loadSettings() {
 	});
 }
 
-function batchLimit() {
+export function batchLimit() {
 	return batchOff ? 0 : (Number(settings.batchSize) || 0);
 }
 
@@ -273,7 +273,7 @@ function clearDueCounts() {
 	line.hidden = true;
 }
 
-function renderBatchProgress() {
+export function renderBatchProgress() {
 	const container = document.querySelector("#batchProgress");
 	if (!container) return;
 	const limit = batchLimit();
@@ -301,7 +301,7 @@ function renderBatchProgress() {
 	container.hidden = false;
 }
 
-function renderDueCounts(stats) {
+export function renderDueCounts(stats) {
 	const line = document.querySelector("#dueCounts");
 	const entry = stats ? Object.values(stats)[0] : null;
 	if (!entry) {
@@ -333,7 +333,7 @@ function renderDueCounts(stats) {
 	line.hidden = false;
 }
 
-function fetchDueCounts(deckName) {
+export function fetchDueCounts(deckName) {
 	const request = ++dueCountRequest;
 	if (!settings.showDueCounts) {
 		clearDueCounts();
@@ -359,21 +359,21 @@ function showQuestionControls() {
 	}
 }
 
-function buttonNames(count) {
+export function buttonNames(count) {
 	if (count >= 4) return ["Again", "Hard", "Good", "Easy"];
 	if (count === 3) return ["Again", "Good", "Easy"];
 	return ["Again", "Good"];
 }
 
-function currentButtonNames() {
+export function currentButtonNames() {
 	return buttonNames(card && card.buttons ? card.buttons.length : 2);
 }
 
-function goodIndex() {
+export function goodIndex() {
 	return currentButtonNames().indexOf("Good") + 1;
 }
 
-function buildAnswerButtons() {
+export function buildAnswerButtons() {
 	const container = document.querySelector("#answerControls");
 	container.replaceChildren();
 	const names = currentButtonNames();
@@ -445,7 +445,7 @@ function handleActionError(e, fallbackMessage) {
 	}
 }
 
-async function answerQuestion(answer) {
+export async function answerQuestion(answer) {
 	if (state !== 'answer' || !card) return;
 	if (answer < 1 || answer > currentButtonNames().length) return;
 	state = 'busy';
@@ -489,7 +489,7 @@ function studyError(e) {
 	}
 }
 
-function showBatchDone(opts) {
+export function showBatchDone(opts) {
 	const onBreak = !!opts?.onBreak;
 	showDoneScreen({
 		batch: {
@@ -510,7 +510,7 @@ function showBatchDone(opts) {
 	});
 }
 
-async function continueStudy() {
+export async function continueStudy() {
 	state = 'busy';
 	try {
 		const hasDeck = await rotateDeck();
@@ -536,7 +536,7 @@ async function markCurrentDeckEmpty() {
 	});
 }
 
-async function getCard(attempt = 0) {
+export async function getCard(attempt = 0) {
 	try {
 		const result = await ankiConnectInvoke("guiCurrentCard");
 		if (typeof result.question !== "string") {
@@ -555,7 +555,7 @@ async function getCard(attempt = 0) {
 	}
 }
 
-async function startStudy() {
+export async function startStudy() {
 	state = 'busy';
 	try {
 		const hasDeck = await rotateDeck();
@@ -582,7 +582,7 @@ export async function editNote() {
 	}
 }
 
-function replayAudio() {
+export function replayAudio() {
 	const frame = sandbox();
 	if (frame && frame.contentWindow) {
 		frame.contentWindow.postMessage({command: 'replayAudio'}, '*');
@@ -620,7 +620,7 @@ export async function suspendCard() {
 	}
 }
 
-async function buryCard() {
+export async function buryCard() {
 	if (!card || state === 'busy') return;
 	const previousState = state;
 	state = 'busy';

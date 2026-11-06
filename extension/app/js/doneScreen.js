@@ -9,14 +9,14 @@ function el(tag, className, text) {
 	return node;
 }
 
-function startOfAnkiDay(now = new Date()) {
+export function startOfAnkiDay(now = new Date()) {
 	const start = new Date(now);
 	start.setHours(4, 0, 0, 0);
 	if (now.getTime() < start.getTime()) start.setDate(start.getDate() - 1);
 	return start.getTime();
 }
 
-function formatDuration(ms) {
+export function formatDuration(ms) {
 	const minutes = Math.round(ms / 60000);
 	if (minutes < 1) return 'less than a minute';
 	if (minutes < 60) return minutes + 'm';
@@ -66,7 +66,7 @@ async function fillStats(container, settings) {
 	});
 }
 
-function searchUrl(template, query) {
+export function searchUrl(template, query) {
 	const base = template && template.indexOf('%s') !== -1 ? template : 'https://duckduckgo.com/?q=%s';
 	return base.split('%s').join(encodeURIComponent(query));
 }
@@ -167,13 +167,13 @@ async function addFallback(parent, settings) {
 	if (withTopSites) addTopSites(parent);
 }
 
-function batchHeading(batch) {
+export function batchHeading(batch) {
 	if (batch.onBreak) return 'Break time';
 	const count = Number(batch.count) || 0;
 	return count + (count === 1 ? ' card done' : ' cards done');
 }
 
-function batchSub(batch) {
+export function batchSub(batch) {
 	if (!batch.onBreak) return 'The rest can wait.';
 	const when = new Date(Number(batch.freeUntil) || Date.now());
 	return 'Cards are back at ' + when.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
