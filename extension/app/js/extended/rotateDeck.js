@@ -1,19 +1,8 @@
 import ankiConnectInvoke from "../../../libs/ankiConnect.js"
+import {storageGet, storageSet} from "../../../libs/chromeApi.js"
 import {showDoneScreen} from "../doneScreen.js"
 
 const checkEmptyDelay=3600*1000; // in milliseconds
-
-function storageGet(keys){
-	return new Promise((resolve)=>{
-		chrome.storage.local.get(keys, resolve);
-	});
-}
-
-function storageSet(values){
-	return new Promise((resolve)=>{
-		chrome.storage.local.set(values, resolve);
-	});
-}
 
 // Picks the next deck and asks Anki to review it. Resolves true when a deck was
 // started, false when everything scheduled for today has been reviewed.

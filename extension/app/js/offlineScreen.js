@@ -1,16 +1,10 @@
 import {ping, requestPermission} from '../../libs/ankiConnect.js';
+import {el, hideOverlay, showOverlay} from '../../libs/dom.js';
 
 let pollTimer = null;
 let onVisibility = null;
 let retryCallback = null;
 let pollInFlight = false;
-
-function el(tag, className, text) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== undefined) node.textContent = text;
-	return node;
-}
 
 function blankLink() {
 	const link = el('a', '', 'Open a blank tab');
@@ -28,11 +22,7 @@ function stopPolling() {
 export function hideOffline() {
 	stopPolling();
 	retryCallback = null;
-	const overlay = document.getElementById('overlay');
-	if (overlay) {
-		overlay.hidden = true;
-		overlay.replaceChildren();
-	}
+	hideOverlay();
 }
 
 function startPolling() {
@@ -119,7 +109,6 @@ export function showOffline(options = {}) {
 		inner.appendChild(actions);
 	}
 
-	overlay.replaceChildren(inner);
-	overlay.hidden = false;
+	showOverlay(inner);
 	if (!permission) startPolling();
 }

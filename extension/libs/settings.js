@@ -1,3 +1,5 @@
+import {storageGet, storageSet} from './chromeApi.js';
+
 // Single source of truth for the extension's stored settings.
 // bg.js (a classic background script) keeps a copy of this object because it
 // cannot import ES modules; keep the two in sync.
@@ -21,13 +23,9 @@ export const DEFAULT_SETTINGS = {
 
 // Returns every setting, with defaults filled in for anything not stored yet.
 export function getSettings() {
-	return new Promise((resolve) => {
-		chrome.storage.local.get(DEFAULT_SETTINGS, (result) => resolve(result));
-	});
+	return storageGet(DEFAULT_SETTINGS);
 }
 
 export function setSettings(partial) {
-	return new Promise((resolve) => {
-		chrome.storage.local.set(partial, () => resolve());
-	});
+	return storageSet(partial);
 }

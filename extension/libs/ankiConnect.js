@@ -1,3 +1,5 @@
+import {permissionsContains, permissionsRequest} from './chromeApi.js';
+
 // AnkiConnect client. Errors are plain objects with a `type` field so callers can
 // decide what to show: 'offline' (anki/AnkiConnect is not reachable), 'permission'
 // (the extension is not allowed to talk to 127.0.0.1) and 'anki' (AnkiConnect
@@ -13,28 +15,8 @@ function error(type, message) {
 	return e;
 }
 
-function permissionsContains(permissions) {
-	return new Promise((resolve) => {
-		if (!chrome.permissions || !chrome.permissions.contains) {
-			resolve(true);
-			return;
-		}
-		try {
-			const maybePromise = chrome.permissions.contains(permissions, (granted) => {
-				void chrome.runtime.lastError;
-				resolve(!!granted);
-			});
-			if (maybePromise && typeof maybePromise.then === 'function') {
-				maybePromise.then((granted) => resolve(!!granted), () => resolve(true));
-			}
-		} catch (e) {
-			resolve(true);
-		}
-	});
-}
-
 async function hasHostPermission() {
-	return permissionsContains(HOST_PERMISSIONS);
+	return permissionsContains(HOST_PERMISSIONS, true);
 }
 
 async function networkError() {
@@ -94,23 +76,7 @@ export function ping() {
 
 // Ask the browser for access to the local AnkiConnect server.
 export function requestPermission() {
-	return new Promise((resolve) => {
-		if (!chrome.permissions || !chrome.permissions.request) {
-			resolve(false);
-			return;
-		}
-		try {
-			const maybePromise = chrome.permissions.request(HOST_PERMISSIONS, (granted) => {
-				void chrome.runtime.lastError;
-				resolve(!!granted);
-			});
-			if (maybePromise && typeof maybePromise.then === 'function') {
-				maybePromise.then((granted) => resolve(!!granted), () => resolve(false));
-			}
-		} catch (e) {
-			resolve(false);
-		}
-	});
+	return permissionsRequest(HOST_PERMISSIONS);
 }
 
 export default ankiConnectInvoke;

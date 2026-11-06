@@ -1,7 +1,10 @@
 import rotateDeck from "./extended/rotateDeck.js"
 import MIME from "./mimeTypes.js"
 import ankiConnectInvoke from "../../libs/ankiConnect.js"
+import {storageGet, storageSet} from "../../libs/chromeApi.js"
+import {hideOverlay} from "../../libs/dom.js"
 import {DEFAULT_SETTINGS, getSettings} from "../../libs/settings.js"
+import {isRemoteUrl, mediaFilename} from "../../libs/url.js"
 import {createKeyHandler} from "./keys.js"
 import {showOffline} from "./offlineScreen.js"
 import {showToast} from "./toast.js"
@@ -66,9 +69,9 @@ export async function inlineMediaScripts(html) {
 	const scripts = Array.from(tpl.content.querySelectorAll("script[src]"));
 	await Promise.all(scripts.map(async (script) => {
 		const src = script.getAttribute("src");
-		if (/^[a-z][a-z0-9+.-]*:|^\/\//i.test(src)) return; // remote URL, leave it
+		if (isRemoteUrl(src)) return; // remote URL, leave it
 		try {
-			const data = await ankiConnectInvoke("retrieveMediaFile", {filename: decodeURIComponent(src.split(/[?#]/)[0])});
+			const data = await ankiConnectInvoke("retrieveMediaFile", {filename: mediaFilename(src)});
 			if (data) {
 				script.removeAttribute("src");
 				script.textContent = bufferToText(data);
@@ -120,8 +123,8 @@ export async function resolveMedia(html) {
 	await Promise.all(elements.map(async (elem) => {
 		try {
 			const src = elem.getAttribute("src");
-			if (!src || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(src)) return; // remote URL or data URI
-			const dataUri = await getMediaDataUri(decodeURIComponent(src.split(/[?#]/)[0]));
+			if (!src || isRemoteUrl(src)) return; // remote URL or data URI
+			const dataUri = await getMediaDataUri(mediaFilename(src));
 			if (dataUri) elem.setAttribute("src", dataUri);
 		} catch (e) {
 			console.warn("AnkiTab: could not resolve media", elem.getAttribute("src"), e);
@@ -149,14 +152,14 @@ export function extractLocalFontFaces(css) {
 		const family = cssValue(block, "font-family").replace(/^(['"])(.*)\1$/, "$2").trim();
 		const src = cssValue(block, "src");
 		const urls = Array.from(src.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi), (m) => m[2].trim());
-		const local = urls.find((url) => !/^[a-z][a-z0-9+.-]*:|^\/\//i.test(url));
+		const local = urls.find((url) => !isRemoteUrl(url));
 		if (!family || !local) return block; // remote or data: fonts load on their own
 		const descriptors = {};
 		const weight = cssValue(block, "font-weight");
 		const style = cssValue(block, "font-style");
 		if (weight) descriptors.weight = weight;
 		if (style) descriptors.style = style;
-		faces.push({family, filename: decodeURIComponent(local.split(/[?#]/)[0]), descriptors});
+		faces.push({family, filename: mediaFilename(local), descriptors});
 		return "";
 	});
 	return {css: stripped, faces};
@@ -469,7 +472,7 @@ export async function answerQuestion(answer) {
 		if (breakMinutes > 0) {
 			const freeUntil = Date.now() + breakMinutes * 60000;
 			settings.batchFreeUntil = freeUntil;
-			chrome.storage.local.set({batchFreeUntil: freeUntil});
+			storageSet({batchFreeUntil: freeUntil}).catch(() => {});
 		}
 		showBatchDone();
 		return;
@@ -498,11 +501,7 @@ export function showBatchDone(opts) {
 			freeUntil: settings.batchFreeUntil,
 			onContinue: () => {
 				batchOff = true;
-				const overlay = document.querySelector("#overlay");
-				if (overlay) {
-					overlay.hidden = true;
-					overlay.replaceChildren();
-				}
+				hideOverlay();
 				if (onBreak) startStudy();
 				else continueStudy();
 			},
@@ -525,15 +524,11 @@ export async function continueStudy() {
 }
 
 async function markCurrentDeckEmpty() {
-	const result = await new Promise((resolve) => {
-		chrome.storage.local.get(["lastDeck", "emptyDecks"], resolve);
-	});
+	const result = await storageGet(["lastDeck", "emptyDecks"]);
 	const emptyDecks = (result.emptyDecks || []).slice();
 	const name = result.lastDeck || (card && card.deckName);
 	if (name) emptyDecks.push({name, date: Date.now()});
-	await new Promise((resolve) => {
-		chrome.storage.local.set({emptyDecks}, resolve);
-	});
+	await storageSet({emptyDecks});
 }
 
 export async function getCard(attempt = 0) {

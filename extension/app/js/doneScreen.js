@@ -1,13 +1,8 @@
 import ankiConnectInvoke from '../../libs/ankiConnect.js';
+import {getTopSites, permissionsContains} from '../../libs/chromeApi.js';
+import {el, showOverlay} from '../../libs/dom.js';
 import {getSettings} from '../../libs/settings.js';
 import {showToast} from './toast.js';
-
-function el(tag, className, text) {
-	const node = document.createElement(tag);
-	if (className) node.className = className;
-	if (text !== undefined) node.textContent = text;
-	return node;
-}
 
 export function startOfAnkiDay(now = new Date()) {
 	const start = new Date(now);
@@ -91,38 +86,7 @@ function addSearch(parent, settings) {
 }
 
 function topSitesAvailable() {
-	if (!chrome.permissions || !chrome.permissions.contains) return Promise.resolve(!!chrome.topSites);
-	return new Promise((resolve) => {
-		try {
-			const maybePromise = chrome.permissions.contains({permissions: ['topSites']}, (granted) => {
-				void chrome.runtime.lastError;
-				resolve(!!granted);
-			});
-			if (maybePromise && typeof maybePromise.then === 'function') {
-				maybePromise.then((granted) => resolve(!!granted), () => resolve(false));
-			}
-		} catch (e) {
-			resolve(false);
-		}
-	});
-}
-
-function getTopSites() {
-	return new Promise((resolve, reject) => {
-		if (!chrome.topSites || !chrome.topSites.get) {
-			reject(new Error('topSites is not available'));
-			return;
-		}
-		try {
-			const maybePromise = chrome.topSites.get((sites) => {
-				if (chrome.runtime.lastError) reject(new Error(chrome.runtime.lastError.message));
-				else resolve(sites || []);
-			});
-			if (maybePromise && typeof maybePromise.then === 'function') maybePromise.then(resolve, reject);
-		} catch (e) {
-			reject(e);
-		}
-	});
+	return permissionsContains({permissions: ['topSites']}, !!chrome.topSites, false);
 }
 
 function addTopSites(parent) {
@@ -240,8 +204,7 @@ export async function showDoneScreen(options = {}) {
 
 	await addFallback(inner, settings);
 
-	overlay.replaceChildren(inner);
-	overlay.hidden = false;
+	showOverlay(inner);
 	const search = overlay.querySelector('.done-search input');
 	if (search) setTimeout(() => search.focus(), 0);
 }

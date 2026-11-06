@@ -1,6 +1,6 @@
 """Render README screenshots of the new tab page against a fake AnkiConnect.
 
-usage: python3 tools/screenshots.py   (writes promo/screenshots/*.png)
+usage: python3 tools/screenshots.py [outdir]   (default promo/screenshots/)
 serves extension/ on a local port, stubs the chrome.* apis the pages use and
 answers AnkiConnect requests with a small fixed deck.
 """
@@ -8,13 +8,14 @@ import functools
 import http.server
 import json
 import pathlib
+import sys
 import threading
 
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 EXT = ROOT / "extension"
-OUT = ROOT / "promo" / "screenshots"
+OUT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "promo" / "screenshots"
 PORT = 8799
 
 CARD_CSS = """.card { font-family: Georgia, serif; font-size: 26px; text-align: center; color: inherit; background: transparent; }
@@ -97,9 +98,13 @@ class Anki:
         return True
 
 
+class QuietHandler(http.server.SimpleHTTPRequestHandler):
+    def log_message(self, *args):
+        pass
+
+
 def serve():
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(EXT))
-    handler.log_message = lambda *a: None
+    handler = functools.partial(QuietHandler, directory=str(EXT))
     server = http.server.ThreadingHTTPServer(("127.0.0.1", PORT), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server

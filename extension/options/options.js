@@ -1,5 +1,6 @@
 import rotateDeck from "../app/js/extended/rotateDeck.js";
 import ankiConnectInvoke from "../libs/ankiConnect.js";
+import {permissionsRequest, storageGet, storageSet} from "../libs/chromeApi.js";
 import {getSettings, setSettings} from "../libs/settings.js";
 
 const form = document.querySelector("#optionsForm");
@@ -50,23 +51,7 @@ function tickAll(value, event) {
 }
 
 function requestTopSites() {
-	return new Promise((resolve) => {
-		if (!chrome.permissions || !chrome.permissions.request) {
-			resolve(false);
-			return;
-		}
-		try {
-			const maybePromise = chrome.permissions.request({permissions: ["topSites"]}, (granted) => {
-				void chrome.runtime.lastError;
-				resolve(!!granted);
-			});
-			if (maybePromise && typeof maybePromise.then === "function") {
-				maybePromise.then((granted) => resolve(!!granted), () => resolve(false));
-			}
-		} catch (e) {
-			resolve(false);
-		}
-	});
+	return permissionsRequest({permissions: ["topSites"]});
 }
 
 async function saved(event) {
@@ -155,11 +140,11 @@ async function init() {
 
 	let names = [];
 	try {
-		const stored = await new Promise((resolve) => chrome.storage.local.get(["deckNames"], resolve));
+		const stored = await storageGet(["deckNames"]);
 		names = stored.deckNames || [];
 		if (!names.length) {
 			names = await ankiConnectInvoke("deckNames");
-			await new Promise((resolve) => chrome.storage.local.set({deckNames: names}, resolve));
+			await storageSet({deckNames: names});
 		}
 	} catch (e) {
 		// anki is not running; the deck list stays empty
