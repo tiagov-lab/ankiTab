@@ -40,16 +40,6 @@ function makeCard(overrides = {}) {
 
 let cardQueue = [];
 
-function deferred() {
-	let resolve;
-	let reject;
-	const promise = new Promise((res, rej) => {
-		resolve = res;
-		reject = rej;
-	});
-	return {promise, resolve, reject};
-}
-
 beforeEach(() => {
 	vi.clearAllMocks();
 	window.ankitabTheme = undefined;
@@ -101,35 +91,9 @@ const dueCounts = () => document.querySelector('#dueCounts');
 const dots = () => Array.from(document.querySelectorAll('#batchProgress .batch-dot'));
 
 describe('pure helpers', () => {
-	it('buttonNames picks names by button count', async () => {
-		const {mod} = await loadCards();
-		expect(mod.buttonNames(4)).toEqual(['Again', 'Hard', 'Good', 'Easy']);
-		expect(mod.buttonNames(5)).toEqual(['Again', 'Hard', 'Good', 'Easy']);
-		expect(mod.buttonNames(3)).toEqual(['Again', 'Good', 'Easy']);
-		expect(mod.buttonNames(2)).toEqual(['Again', 'Good']);
-		expect(mod.buttonNames(1)).toEqual(['Again', 'Good']);
-	});
-
 	it('goodIndex points at the Good button', async () => {
 		const {mod} = await startCards({cards: [makeCard({buttons: [1, 2, 3]})]});
 		expect(mod.goodIndex()).toBe(2);
-	});
-
-	it('renderDueCounts writes new + learning + review', async () => {
-		const {mod} = await loadCards();
-		mod.renderDueCounts({1: {new_count: 4, learn_count: 0, review_count: 2}});
-		expect(dueCounts().hidden).toBe(false);
-		expect(dueCounts().textContent).toBe('4 + 0 + 2');
-		expect(dueCounts().querySelector('.due-new').textContent).toBe('4');
-		expect(dueCounts().querySelector('.due-review').textContent).toBe('2');
-	});
-
-	it('renderDueCounts clears with no stats', async () => {
-		const {mod} = await loadCards();
-		dueCounts().textContent = 'old';
-		mod.renderDueCounts(null);
-		expect(dueCounts().children.length).toBe(0);
-		expect(dueCounts().hidden).toBe(true);
 	});
 });
 
@@ -694,41 +658,5 @@ describe('getCard retries', () => {
 		await startCards();
 		expect(mocks.showOffline).toHaveBeenCalled();
 		expect(mocks.showDoneScreen).not.toHaveBeenCalled();
-	});
-});
-
-describe('due count races', () => {
-	it('does not let an older response overwrite a newer one', async () => {
-		const statsRequests = [];
-		mocks.anki.mockImplementation((action) => {
-			if (action === 'guiCurrentCard') return Promise.resolve(makeCard());
-			if (action === 'getDeckStats') {
-				const request = deferred();
-				statsRequests.push(request);
-				return request.promise;
-			}
-			return Promise.resolve();
-		});
-		const {mod} = await startCards();
-		expect(statsRequests.length).toBe(1);
-		await mod.undo();
-		await settle();
-		expect(statsRequests.length).toBe(2);
-		statsRequests[1].resolve({1: {new_count: 9, learn_count: 0, review_count: 0}});
-		await settle();
-		expect(dueCounts().textContent).toBe('9 + 0 + 0');
-		statsRequests[0].resolve({1: {new_count: 1, learn_count: 1, review_count: 1}});
-		await settle();
-		expect(dueCounts().textContent).toBe('9 + 0 + 0');
-	});
-
-	it('clears the counts when the newest request fails', async () => {
-		mocks.anki.mockImplementation((action) => {
-			if (action === 'guiCurrentCard') return Promise.resolve(makeCard());
-			if (action === 'getDeckStats') return Promise.reject({type: 'anki', message: 'no'});
-			return Promise.resolve();
-		});
-		await startCards();
-		expect(dueCounts().hidden).toBe(true);
 	});
 });

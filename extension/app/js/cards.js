@@ -9,13 +9,20 @@ import {prefetchAnswer, renderInSandbox} from "./renderCard.js"
 import {postToSandbox, setDimmed} from "./sandboxFrame.js"
 import {showToast} from "./toast.js"
 import {showDoneScreen} from "./doneScreen.js"
+import {
+	buttonNames,
+	clearDueCounts,
+	fetchDueCounts,
+	setAnswerButtonsDisabled,
+	showAnswerControls,
+	showQuestionControls,
+} from "./answerBar.js"
 
 let card = null;
 let state = 'busy'; // 'question' | 'answer' | 'busy'
 let settings = Object.assign({}, DEFAULT_SETTINGS);
 let settingsWatched = false;
 let keyboardAttached = false;
-let dueCountRequest = 0;
 let batchCount = 0; // cards answered in this tab
 let batchOff = false; // "keep studying" was picked; no more cap in this tab
 
@@ -34,7 +41,7 @@ function defaultSettings() {
 function loadSettings() {
 	return getSettings().then((result) => {
 		settings = Object.assign(defaultSettings(), result);
-		if (card && state === 'question') fetchDueCounts(card.deckName);
+		if (card && state === 'question') fetchDueCounts(card.deckName, !!settings.showDueCounts);
 	});
 }
 
@@ -55,19 +62,12 @@ function watchSettings() {
 			if (key === 'batchSize') refreshBatch = true;
 		}
 		if (refreshBatch) renderBatchProgress();
-		if (refreshCounts && card) fetchDueCounts(card.deckName);
+		if (refreshCounts && card) fetchDueCounts(card.deckName, !!settings.showDueCounts);
 	});
 }
 
 function setTitle(deckName) {
 	document.title = deckName ? "AnkiTab · " + deckName : "AnkiTab";
-}
-
-function clearDueCounts() {
-	const line = document.querySelector("#dueCounts");
-	if (!line) return;
-	line.replaceChildren();
-	line.hidden = true;
 }
 
 export function renderBatchProgress() {
@@ -98,103 +98,12 @@ export function renderBatchProgress() {
 	container.hidden = false;
 }
 
-export function renderDueCounts(stats) {
-	const line = document.querySelector("#dueCounts");
-	const entry = stats ? Object.values(stats)[0] : null;
-	if (!entry) {
-		clearDueCounts();
-		return;
-	}
-	const newCount = Number(entry.new_count) || 0;
-	const learnCount = Number(entry.learn_count) || 0;
-	const reviewCount = Number(entry.review_count) || 0;
-
-	line.replaceChildren();
-	const values = [
-		["due-new", newCount],
-		["due-learn", learnCount],
-		["due-review", reviewCount],
-	];
-	values.forEach(([className, value], index) => {
-		if (index > 0) {
-			const separator = document.createElement("span");
-			separator.className = "due-sep";
-			separator.textContent = " + ";
-			line.appendChild(separator);
-		}
-		const number = document.createElement("span");
-		number.className = className;
-		number.textContent = String(value);
-		line.appendChild(number);
-	});
-	line.hidden = false;
-}
-
-export function fetchDueCounts(deckName) {
-	const request = ++dueCountRequest;
-	if (!settings.showDueCounts) {
-		clearDueCounts();
-		return;
-	}
-	clearDueCounts();
-	ankiConnectInvoke("getDeckStats", {decks: [deckName]}).then((stats) => {
-		if (request !== dueCountRequest) return;
-		renderDueCounts(stats);
-	}).catch((e) => {
-		if (request === dueCountRequest) clearDueCounts();
-		console.warn("AnkiTab: could not load due counts", e);
-	});
-}
-
-function showQuestionControls() {
-	const question = document.querySelector("#questionControls");
-	const answer = document.querySelector("#answerControls");
-	if (question) question.hidden = false;
-	if (answer) {
-		answer.hidden = true;
-		answer.replaceChildren();
-	}
-}
-
-export function buttonNames(count) {
-	if (count >= 4) return ["Again", "Hard", "Good", "Easy"];
-	if (count === 3) return ["Again", "Good", "Easy"];
-	return ["Again", "Good"];
-}
-
 export function currentButtonNames() {
 	return buttonNames(card && card.buttons ? card.buttons.length : 2);
 }
 
 export function goodIndex() {
 	return currentButtonNames().indexOf("Good") + 1;
-}
-
-export function buildAnswerButtons() {
-	const container = document.querySelector("#answerControls");
-	container.replaceChildren();
-	const names = currentButtonNames();
-	const nextReviews = card && Array.isArray(card.nextReviews) ? card.nextReviews : [];
-
-	names.forEach((name, index) => {
-		const choice = document.createElement("div");
-		choice.className = "answer-choice";
-
-		const interval = document.createElement("span");
-		interval.className = "interval";
-		interval.textContent = nextReviews[index] || "";
-
-		const button = document.createElement("button");
-		button.type = "button";
-		button.className = "anki-btn answer-btn";
-		button.textContent = name;
-		button.addEventListener("click", () => answerQuestion(index + 1));
-
-		choice.appendChild(interval);
-		choice.appendChild(button);
-		container.appendChild(choice);
-	});
-	container.hidden = false;
 }
 
 async function renderQuestion() {
@@ -205,24 +114,18 @@ async function renderQuestion() {
 	showQuestionControls();
 	renderBatchProgress();
 	renderInSandbox(card, card.question, {answer: false, autoFlip: !!settings.autoFlipChoice});
-	fetchDueCounts(card.deckName);
+	fetchDueCounts(card.deckName, !!settings.showDueCounts);
 	prefetchAnswer(card);
 }
 
 export function renderAnswer() {
 	if (state !== 'question' || !card) return;
 	state = 'answer';
-	document.querySelector("#questionControls").hidden = true;
-	buildAnswerButtons();
+	const nextReviews = Array.isArray(card.nextReviews) ? card.nextReviews : [];
+	showAnswerControls(currentButtonNames(), nextReviews, answerQuestion);
 	renderInSandbox(card, card.answer, {answer: true});
 	ankiConnectInvoke("guiShowAnswer").catch((e) => {
 		console.warn("AnkiTab: guiShowAnswer failed", e);
-	});
-}
-
-function setAnswerButtonsDisabled(disabled) {
-	document.querySelectorAll("#answerControls button").forEach((button) => {
-		button.disabled = disabled;
 	});
 }
 
