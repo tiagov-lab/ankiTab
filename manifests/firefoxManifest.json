@@ -1,6 +1,6 @@
 {
 	"name": "AnkiTab",
-	"version": "0.7.0",
+	"version": "0.8.0",
 	"description": "Replace new tab page with Anki flashcards",
 	"manifest_version": 2,
 	"browser_specific_settings": {
@@ -32,6 +32,9 @@
 		"storage",
 		"http://127.0.0.1:8765/*",
 		"http://localhost:8765/*"
+	],
+	"optional_permissions": [
+		"topSites"
 	],
 	"content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
 	"chrome_url_overrides": {

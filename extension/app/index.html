@@ -1,36 +1,49 @@
 <!DOCTYPE html>
 <html lang="en">
 	<head>
-		<title>New Tab</title>
+		<title>AnkiTab</title>
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<meta name="color-scheme" content="light dark">
+		<script src="./js/theme-init.js"></script>
 		<link rel="stylesheet" href="../libs/bootstrap.css">
 		<link rel="stylesheet" href="./css/main.css">
 		<base href=".">
 	</head>
-	<body>
-		<div id="optionsBtn">
-			<a href="">Options</a> |
-			<a href="javascript:null" id="syncBtn">Sync</a>
-			<br>
-			<p class="pointerHover" id="darkmodeEnabled"><u>Toggle Theme</u></p>
-		</div>
-		<div class="container">
-			<div class="deckName">
-				<span id="deckName"></span>
-			</div>
-			<div id="flashcardParent" class="card">
-				<div id="flashcard" style="display: none"></div>
-				<iframe id="flashcardSandbox" src="sandbox.html"></iframe>
+	<body class="app-body">
+		<div id="studyView" class="study-view">
+			<div class="deck-title"><span id="deckName"></span></div>
+			<div class="card-area">
+				<div id="flashcard" hidden></div>
+				<iframe id="flashcardSandbox" title="Flashcard" scrolling="yes"></iframe>
 			</div>
 		</div>
-		<div class="container-fluid">
-			<div id="answerButtonsParent" class="row">
-				<div id="answerButtons" class="row">
 
+		<div id="answerBar" class="rev-bar">
+			<div class="bar-left">
+				<button type="button" id="editBtn" class="anki-btn" title="Edit note (E)">Edit</button>
+			</div>
+			<div class="bar-center">
+				<div id="questionControls" class="bar-stack">
+					<div id="dueCounts" class="due-counts" title="new + learning + review"></div>
+					<button type="button" id="showAnswerBtn" class="anki-btn show-answer">Show Answer</button>
+				</div>
+				<div id="answerControls" class="answer-controls" hidden></div>
+			</div>
+			<div class="bar-right">
+				<button type="button" id="moreButton" class="anki-btn" aria-haspopup="true" aria-expanded="false">More</button>
+				<div id="menu" class="menu" hidden role="menu">
+					<button type="button" class="menu-item" id="optionsBtn" role="menuitem">Options</button>
+					<button type="button" class="menu-item" id="syncBtn" role="menuitem">Sync</button>
+					<button type="button" class="menu-item" id="themeBtn" role="menuitem">Theme: System</button>
+					<button type="button" class="menu-item" id="undoBtn" role="menuitem">Undo</button>
+					<button type="button" class="menu-item" id="suspendBtn" role="menuitem">Suspend card</button>
 				</div>
 			</div>
 		</div>
+
+		<div id="overlay" class="overlay" hidden></div>
+		<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 		<script src="./js/main.js" type="module"></script>
 	</body>

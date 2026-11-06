@@ -16,6 +16,22 @@ const globalEval = eval; // calling through a reference makes eval run in the gl
 window.onUpdateHook = [];
 window.onShownHook = [];
 
+// Theme. The parent re-sends it before every render too; the query param is only
+// the initial hint so the document does not paint white before the first message.
+function applyTheme(dark) {
+	currentDark = !!dark;
+	document.documentElement.classList.toggle('dark-theme', currentDark);
+	if (document.body) {
+		document.body.classList.toggle('dark-theme', currentDark);
+		document.body.classList.toggle('nightMode', currentDark);
+		document.body.classList.toggle('night_mode', currentDark);
+	}
+}
+
+let currentDark = new URLSearchParams(location.search).get('theme') === 'dark';
+applyTheme(currentDark);
+document.addEventListener('DOMContentLoaded', () => applyTheme(currentDark));
+
 function runCode(code, label) {
   try {
     globalEval(code);
@@ -135,7 +151,7 @@ function loadExternalScript(src) {
   });
 }
 
-async function render(html) {
+async function render(html, options = {}) {
   const container = document.querySelector('#qa');
   window.onUpdateHook = [];
   window.onShownHook = [];
@@ -166,12 +182,73 @@ async function render(html) {
   runHooks(window.onUpdateHook);
   runHooks(window.onShownHook);
   typeset();
+  if (options.answer) {
+    // Anki scrolls the answer separator into view after showing the back.
+    setTimeout(() => {
+      const answer = container.querySelector('hr#answer') || container.querySelector('#answer');
+      if (answer) answer.scrollIntoView({block: 'start'});
+    }, 0);
+  }
 }
 
+function replayAudio() {
+  const media = Array.from(document.querySelectorAll('#qa audio, #qa video'));
+  let index = 0;
+  const playNext = () => {
+    if (index >= media.length) return;
+    const elem = media[index++];
+    const advance = () => {
+      elem.removeEventListener('ended', advance);
+      playNext();
+    };
+    elem.addEventListener('ended', advance);
+    try {
+      elem.currentTime = 0;
+    } catch (e) { /* not seekable yet */ }
+    try {
+      const promise = elem.play();
+      if (promise && typeof promise.catch === 'function') promise.catch(advance);
+    } catch (e) {
+      advance();
+    }
+  };
+  playNext();
+}
+
+function isEditable(target) {
+  if (!target || !target.tagName) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+}
+
+// The iframe steals focus when the card is clicked, so keyboard input has to be
+// forwarded to the parent's dispatcher.
+window.addEventListener('keydown', (event) => {
+  if (isEditable(event.target)) return;
+  if (event.key === ' ') event.preventDefault();
+  window.parent.postMessage({
+    command: 'key',
+    key: event.key,
+    code: event.code,
+    ctrlKey: event.ctrlKey,
+    shiftKey: event.shiftKey,
+    altKey: event.altKey,
+    metaKey: event.metaKey,
+    repeat: event.repeat
+  }, '*');
+});
+
 window.addEventListener('message', async function(event) {
+  if (!event.data || typeof event.data !== 'object') return;
   switch(event.data.command) {
+  case 'theme':
+    applyTheme(event.data.dark);
+    break;
   case 'render':
-    window.mutex = render(event.data.html);
+    window.mutex = render(event.data.html, {answer: !!event.data.answer});
+    break;
+  case 'replayAudio':
+    replayAudio();
     break;
   case 'replaceMedia':
     await window.mutex;

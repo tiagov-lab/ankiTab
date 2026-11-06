@@ -5,20 +5,28 @@ actionApi.onClicked.addListener(function () { //Fired when the user clicks the e
 	chrome.tabs.create({}); // opens the (overridden) new tab page
 });
 
+// This is a classic background script, so it cannot import
+// extension/libs/settings.js. Keep this object in sync with DEFAULT_SETTINGS there.
+const defaults = {
+	interleavingTrigger: 1,
+	lastDeck: "",
+	interleavingDisabled: false,
+	deckNames: [],
+	excludedDecks: [],
+	emptyDecks: [],
+	doneShowStats: true,
+	doneShowNextDue: true,
+	doneFallback: "search",
+	doneSearchUrl: "https://duckduckgo.com/?q=%s",
+	showDueCounts: true,
+};
+
 chrome.runtime.onInstalled.addListener(function() {
-	let defaults={
-		interleavingTrigger: 1,
-		lastDeck:"",
-		interleavingDisabled:false,
-		betaEnabled:false,
-		deckNames:[],
-		excludedDecks:[],
-		emptyDecks:[]
-	};
 	chrome.storage.local.get(Object.keys(defaults), function(result) {
-		for(let s in result){
-			delete defaults[s];
+		const missing = {};
+		for (const key in defaults) {
+			if (!(key in result)) missing[key] = defaults[key];
 		}
-		chrome.storage.local.set(defaults, function() {}); //Set missing default values
+		chrome.storage.local.set(missing, function() {}); //Set missing default values
 	});
 });

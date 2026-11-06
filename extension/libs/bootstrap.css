@@ -63,7 +63,8 @@ body {
 	--text-color: #212529;
 }
 
-body.dark-theme {
+body.dark-theme,
+html.dark-theme body {
 	--bkg-color: #121212;
 	--text-color: #e1e1e1;
 }

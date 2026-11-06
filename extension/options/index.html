@@ -1,20 +1,47 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 	<title>AnkiTab Options</title>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<script src="../app/js/theme-init.js"></script>
 	<link rel="stylesheet" href="../libs/bootstrap.css">
 <style>
+:root {
+	--muted: #6c757d;
+}
+html.dark-theme {
+	--muted: #9a9a9a;
+}
+body {
+	background: var(--bkg-color);
+	color: var(--text-color);
+}
 .vertical-center {
-  min-height: 100%;  /* Fallback for browsers do NOT support vh unit */
-  min-height: 100vh; /* These two lines are counted as one :-)       */
-
+  min-height: 100vh;
   display: flex;
   align-items: center;
 }
-.hidden{
-	opacity:0;
+.hidden {
+	opacity: 0;
+}
+.alert {
+	transition: opacity 0.3s ease;
+}
+html.dark-theme .form-control {
+	background: #2a2a2a;
+	color: #e1e1e1;
+	border-color: #444;
+}
+html.dark-theme .form-control::placeholder {
+	color: #9a9a9a;
+}
+html.dark-theme a {
+	color: #64b5f6;
+}
+.form-text {
+	color: var(--muted);
 }
 </style>
 </head>
@@ -27,11 +54,6 @@
 	</div>
 <form id="optionsForm">
 	<h4>Interleaving</h4>
-  <!--<div class="form-group">
-  <label for="interleavingTrigger">Size of card batches from each deck</label>
-    <input type="number" class="form-control save" id="interleavingTrigger" max="5" min="1">
-    <small id="emailHelp" class="form-text text-muted">Number of cards from each deck that will be shown before triggering a deck change (interleaving)</small>
-  </div>-->
   <div class="form-check">
     <label class="form-check-label" for="interleavingDisabled">
       <input type="checkbox" class="form-check-input save" id="interleavingDisabled">
@@ -39,15 +61,60 @@
     </label>
   </div>
   <hr>
+  <h4>Appearance</h4>
+  <div class="form-group">
+    <label for="themeSelect">Theme</label>
+    <select class="form-control" id="themeSelect">
+      <option value="system">System</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </div>
+  <div class="form-check">
+    <label class="form-check-label" for="showDueCounts">
+      <input type="checkbox" class="form-check-input save" id="showDueCounts">
+      Show due counts in the review bar
+    </label>
+  </div>
+  <hr>
   <h4>Decks</h4>
   <div class="alert alert-warning" role="alert">
 	  If both a parent and its subdecks are enabled it's possible that you are shown several cards from the same deck repeatedly when reviewing. To solve this just disable the parent deck while leaving the subdecks enabled.
 	</div>
-	<button class="btn btn-secondary" id="tickall">Tick all</button>
-	<button class="btn btn-secondary" id="untickall">Untick all</button>
+	<button type="button" class="btn btn-secondary" id="tickall">Tick all</button>
+	<button type="button" class="btn btn-secondary" id="untickall">Untick all</button>
 	<br>
 	<br>
   <div id="decks">
+	</div>
+	<hr>
+	<h4>When you're done</h4>
+	<div class="form-check">
+		<label class="form-check-label" for="doneShowStats">
+			<input type="checkbox" class="form-check-input save" id="doneShowStats">
+			Show today's review stats
+		</label>
+	</div>
+	<div class="form-check">
+		<label class="form-check-label" for="doneShowNextDue">
+			<input type="checkbox" class="form-check-input save" id="doneShowNextDue">
+			Show how many cards are due tomorrow
+		</label>
+	</div>
+	<div class="form-group">
+		<label for="doneFallback">When there is nothing left</label>
+		<select class="form-control save" id="doneFallback">
+			<option value="none">Show nothing</option>
+			<option value="search">Web search</option>
+			<option value="topsites">Top sites</option>
+			<option value="both">Web search and top sites</option>
+		</select>
+		<small class="form-text">Top sites needs an optional permission; if it is denied, the search box is shown instead.</small>
+	</div>
+	<div class="form-group">
+		<label for="doneSearchUrl">Search URL</label>
+		<input type="text" class="form-control save" id="doneSearchUrl" placeholder="https://duckduckgo.com/?q=%s">
+		<small class="form-text">Must contain <code>%s</code>, which is replaced by the query.</small>
 	</div>
 	<br>
   <button type="submit" class="btn btn-primary">Save</button>
@@ -55,13 +122,16 @@
 <hr>
 <h4>Shortcuts</h4>
 <ul>
-	<li>Space: Show Answer</li>
-	<li>1: Again</li>
-	<li>2: Good</li>
-	<li>3: Easy</li>
+	<li><strong>Space / Enter</strong>: Show Answer, then Good</li>
+	<li><strong>1</strong>: Again · <strong>2</strong>: Hard · <strong>3</strong>: Good · <strong>4</strong>: Easy (cards with fewer buttons: 1 Again · 2 Good · 3 Easy)</li>
+	<li><strong>E</strong>: Edit note</li>
+	<li><strong>R / F5</strong>: Replay audio</li>
+	<li><strong>Ctrl+Z</strong>: Undo</li>
+	<li><strong>@</strong> (Shift+2): Suspend card</li>
+	<li><strong>-</strong>: Bury card</li>
 </ul>
 <hr>
-<a href="https://chrome.google.com/webstore/detail/ankitab/ihoaepdiibjbifnhcjoaddgcnfgjmjdk">Rate & Review</a>
+<a id="rateLink" href="https://chrome.google.com/webstore/detail/ankitab/ihoaepdiibjbifnhcjoaddgcnfgjmjdk">Rate &amp; Review</a>
 <br>
 <strong>Issues and feature requests</strong>: Send an email to the developer (<a href="mailto:ankitab@albert.sh">ankitab@albert.sh</a>)
 <br>

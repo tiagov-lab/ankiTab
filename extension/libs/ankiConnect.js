@@ -1,62 +1,115 @@
-// 127.0.0.1 instead of localhost: AnkiConnect binds IPv4 only and Firefox may resolve localhost to ::1 first
+// AnkiConnect client. Errors are plain objects with a `type` field so callers can
+// decide what to show: 'offline' (anki/AnkiConnect is not reachable), 'permission'
+// (the extension is not allowed to talk to 127.0.0.1) and 'anki' (AnkiConnect
+// answered with an error).
 const ANKI_CONNECT_URL = 'http://127.0.0.1:8765';
-const HOST_PERMISSIONS = {origins: ['http://127.0.0.1:8765/*', 'http://localhost:8765/*']};
+const REQUEST_TIMEOUT_MS = 5000;
 
-function showError(html) {
-	const target = document.querySelector(".card") || document.body;
-	target.innerHTML = '<div class="alert alert-danger" role="alert">' + html + '</div>';
+export const HOST_PERMISSIONS = {origins: ['http://127.0.0.1:8765/*', 'http://localhost:8765/*']};
+
+function error(type, message) {
+	const e = {type};
+	if (message !== undefined) e.message = message;
+	return e;
 }
 
-// In Firefox MV3, host permissions can be revoked by the user (or not granted yet),
-// in which case requests to AnkiConnect fail. Offer a button to grant them.
-function showPermissionPrompt() {
-	showError('AnkiTab needs permission to talk to AnkiConnect on 127.0.0.1:8765. <button class="btn btn-primary btn-sm" id="grantAnkiPermission">Grant permission</button>');
-	const btn = document.querySelector("#grantAnkiPermission");
-	btn && btn.addEventListener('click', () => {
-		chrome.permissions.request(HOST_PERMISSIONS).then((granted) => granted && location.reload());
+function permissionsContains(permissions) {
+	return new Promise((resolve) => {
+		if (!chrome.permissions || !chrome.permissions.contains) {
+			resolve(true);
+			return;
+		}
+		try {
+			const maybePromise = chrome.permissions.contains(permissions, (granted) => {
+				void chrome.runtime.lastError;
+				resolve(!!granted);
+			});
+			if (maybePromise && typeof maybePromise.then === 'function') {
+				maybePromise.then((granted) => resolve(!!granted), () => resolve(true));
+			}
+		} catch (e) {
+			resolve(true);
+		}
 	});
 }
 
 async function hasHostPermission() {
-	if (!chrome.permissions || !chrome.permissions.contains) return true;
-	try {
-		return await chrome.permissions.contains(HOST_PERMISSIONS);
-	} catch (e) {
-		return true;
-	}
+	return permissionsContains(HOST_PERMISSIONS);
 }
 
-function ankiConnectInvoke(action, params={}) {
+async function networkError() {
+	if (await hasHostPermission()) return error('offline');
+	return error('permission');
+}
+
+function ankiConnectInvoke(action, params = {}) {
 	const version = 6;
-	return new Promise((resolve, reject)=>{
+	return new Promise((resolve, reject) => {
 		const xhr = new XMLHttpRequest();
-		xhr.addEventListener('error', async () => {
-			if (await hasHostPermission()) {
-				showError('Make sure that anki is running and <a href="https://ankiweb.net/shared/info/2055492159" class="alert-link">ankiConnect</a> is installed, ankiTab won\'t work otherwise.');
-			} else {
-				showPermissionPrompt();
-			}
-			reject('failed to connect to AnkiConnect');
+		let settled = false;
+		const settle = (fn, value) => {
+			if (settled) return;
+			settled = true;
+			fn(value);
+		};
+
+		xhr.addEventListener('error', () => {
+			networkError().then((e) => settle(reject, e));
+		});
+		xhr.addEventListener('timeout', () => {
+			networkError().then((e) => settle(reject, e));
 		});
 		xhr.addEventListener('load', () => {
+			let payload;
 			try {
-				const response = JSON.parse(xhr.responseText);
-				if (response.error) {
-					throw response.error;
-				} else {
-					if (response.hasOwnProperty('result')) {
-						resolve(response.result);
-					} else {
-						console.log('failed to get results from AnkiConnect');
-					}
-				}
+				payload = JSON.parse(xhr.responseText);
 			} catch (e) {
-				console.error(e);
-				reject(e);
+				settle(reject, error('anki', 'invalid response from AnkiConnect'));
+				return;
 			}
+			if (!payload || typeof payload !== 'object') {
+				settle(reject, error('anki', 'invalid response from AnkiConnect'));
+				return;
+			}
+			if (payload.error) {
+				settle(reject, error('anki', String(payload.error)));
+				return;
+			}
+			if (!Object.prototype.hasOwnProperty.call(payload, 'result')) {
+				settle(reject, error('anki', 'missing result from AnkiConnect'));
+				return;
+			}
+			resolve(payload.result);
 		});
 		xhr.open('POST', ANKI_CONNECT_URL);
-		xhr.send(JSON.stringify({action, version, params}));
+		xhr.timeout = REQUEST_TIMEOUT_MS;
+		xhr.send(JSON.stringify({ action, version, params }));
+	});
+}
+
+// Cheap connectivity check used to poll while the "not running" screen is shown.
+export function ping() {
+	return ankiConnectInvoke('version');
+}
+
+// Ask the browser for access to the local AnkiConnect server.
+export function requestPermission() {
+	return new Promise((resolve) => {
+		if (!chrome.permissions || !chrome.permissions.request) {
+			resolve(false);
+			return;
+		}
+		try {
+			const maybePromise = chrome.permissions.request(HOST_PERMISSIONS, (granted) => {
+				void chrome.runtime.lastError;
+				resolve(!!granted);
+			});
+			if (maybePromise && typeof maybePromise.then === 'function') {
+				maybePromise.then((granted) => resolve(!!granted), () => resolve(false));
+			}
+		} catch (e) {
+			resolve(false);
+		}
 	});
 }
 

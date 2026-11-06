@@ -1,0 +1,38 @@
+/* Card review surface. Loaded after bootstrap so it can undo bootstrap's .card
+   component styles (the sandbox body has class="card"). The card's own CSS is
+   injected inside #qa afterwards and therefore still wins. */
+
+html {
+	background: #ffffff;
+	color-scheme: light dark;
+}
+
+html.dark-theme {
+	background: #121212;
+}
+
+body.card {
+	display: block;
+	box-sizing: border-box;
+	min-height: calc(100vh - 40px);
+	margin: 20px;
+	border: 0;
+	border-radius: 0;
+	background: var(--bkg-color, #ffffff);
+	color: var(--text-color, #212529);
+	overflow-wrap: break-word;
+}
+
+#qa {
+	min-width: 0;
+}
+
+img {
+	max-width: 100%;
+	max-height: 95vh;
+}
+
+hr#answer {
+	display: block;
+	visibility: visible;
+}

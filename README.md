@@ -29,7 +29,8 @@
 2. Build the package with `bash build.sh` (produces `ankitab-firefox.xpi`).
 3. Load it:
    - **Temporary (any Firefox):** open `about:debugging#/runtime/this-firefox` → *Load Temporary Add-on…* → pick `extension/manifest.json` after running `bash build.sh -f`. It stays until Firefox restarts.
-   - **Permanent:** release Firefox only installs signed add-ons. Either sign the xpi as unlisted on [addons.mozilla.org](https://addons.mozilla.org/developers/) (`web-ext sign --channel=unlisted`), or use Firefox Developer Edition / Nightly / ESR with `xpinstall.signatures.required = false` in `about:config` and install the xpi via *about:addons → ⚙ → Install Add-on From File*.
+   - **Permanent (signed):** run `bash sign.sh`. It signs the build with mozilla on the unlisted channel using the AMO api keys in `~/.config/amo/env` (`WEB_EXT_API_KEY`, `WEB_EXT_API_SECRET`), running web-ext in docker, and writes `ankitab-<version>-signed.xpi`. Bump `version` in `manifests/firefoxManifest.json` first: AMO refuses a version it has already signed.
+   - **Permanent (other ways):** release Firefox only installs signed add-ons. Either sign the xpi as unlisted on [addons.mozilla.org](https://addons.mozilla.org/developers/) (`web-ext sign --channel=unlisted`), or use Firefox Developer Edition / Nightly / ESR with `xpinstall.signatures.required = false` in `about:config` and install the xpi via *about:addons → ⚙ → Install Add-on From File*.
 4. If the new tab says AnkiTab needs permission, click *Grant permission* (or allow it under *about:addons → AnkiTab → Permissions*).
 
 ## Build
