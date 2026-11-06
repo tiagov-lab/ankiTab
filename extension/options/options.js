@@ -35,6 +35,28 @@ export function getValue(elem) {
 	}
 }
 
+export function readForm() {
+	const settings = {};
+	document.querySelectorAll(".save").forEach((elem) => {
+		settings[elem.id] = getValue(elem);
+	});
+
+	const deckInputs = document.querySelectorAll(".deck");
+	if (deckInputs.length) {
+		settings.excludedDecks = [];
+		deckInputs.forEach((deck) => {
+			if (!deck.checked) settings.excludedDecks.push(deck.dataset.deck);
+		});
+	}
+	return settings;
+}
+
+export function fillForm(settings) {
+	document.querySelectorAll(".save").forEach((elem) => {
+		if (elem.id in settings) setValue(elem, settings[elem.id]);
+	});
+}
+
 function showSaved() {
 	alertBox.style.opacity = 1;
 	window.clearTimeout(alertTimer);
@@ -54,46 +76,36 @@ function requestTopSites() {
 	return permissionsRequest({permissions: ["topSites"]});
 }
 
+export function validateSearchUrl(input) {
+	const value = input.value.trim();
+	const valid = !value || value.indexOf("%s") !== -1;
+	input.setCustomValidity(valid ? "" : "The search URL must contain %s");
+	if (!valid) input.reportValidity();
+	return valid;
+}
+
+async function ensureTopSitesPermission(settings, select) {
+	if (settings.doneFallback !== "topsites" && settings.doneFallback !== "both") return;
+	if (await requestTopSites()) return;
+	settings.doneFallback = "search";
+	if (select) select.value = "search";
+}
+
 async function saved(event) {
 	event.preventDefault();
 
 	const searchUrlInput = document.querySelector("#doneSearchUrl");
-	const value = searchUrlInput.value.trim();
-	if (value && value.indexOf("%s") === -1) {
-		searchUrlInput.setCustomValidity("The search URL must contain %s");
-		searchUrlInput.reportValidity();
-		return;
-	}
-	searchUrlInput.setCustomValidity("");
+	if (!validateSearchUrl(searchUrlInput)) return;
 
-	const settings = {};
-	document.querySelectorAll(".save").forEach((elem) => {
-		settings[elem.id] = getValue(elem);
-	});
-
-	const deckInputs = document.querySelectorAll(".deck");
-	if (deckInputs.length) {
-		settings.excludedDecks = [];
-		deckInputs.forEach((deck) => {
-			if (!deck.checked) settings.excludedDecks.push(deck.dataset.deck);
-		});
-	}
-
-	const fallback = document.querySelector("#doneFallback");
-	if (settings.doneFallback === "topsites" || settings.doneFallback === "both") {
-		const granted = await requestTopSites();
-		if (!granted) {
-			settings.doneFallback = "search";
-			fallback.value = "search";
-		}
-	}
+	const settings = readForm();
+	await ensureTopSitesPermission(settings, document.querySelector("#doneFallback"));
 
 	await setSettings(settings);
 	showSaved();
 	rotateDeck(false).catch(() => {});
 }
 
-function renderDecks(decks, excluded) {
+export function renderDecks(decks, excluded) {
 	const container = document.querySelector("#decks");
 	container.replaceChildren();
 	decks.slice().sort().forEach((name) => {
@@ -122,11 +134,23 @@ function renderDecks(decks, excluded) {
 	});
 }
 
+export async function loadDeckNames() {
+	try {
+		const stored = await storageGet(["deckNames"]);
+		const names = stored.deckNames || [];
+		if (names.length) return names;
+		const fetched = await ankiConnectInvoke("deckNames");
+		await storageSet({deckNames: fetched});
+		return fetched;
+	} catch (e) {
+		// anki is not running; the deck list stays empty
+		return [];
+	}
+}
+
 async function init() {
 	const settings = await getSettings();
-	document.querySelectorAll(".save").forEach((elem) => {
-		if (elem.id in settings) setValue(elem, settings[elem.id]);
-	});
+	fillForm(settings);
 
 	const themeSelect = document.querySelector("#themeSelect");
 	themeSelect.value = window.ankitabTheme.get();
@@ -138,17 +162,7 @@ async function init() {
 	document.querySelector("#tickall").addEventListener("click", (event) => tickAll(true, event));
 	document.querySelector("#untickall").addEventListener("click", (event) => tickAll(false, event));
 
-	let names = [];
-	try {
-		const stored = await storageGet(["deckNames"]);
-		names = stored.deckNames || [];
-		if (!names.length) {
-			names = await ankiConnectInvoke("deckNames");
-			await storageSet({deckNames: names});
-		}
-	} catch (e) {
-		// anki is not running; the deck list stays empty
-	}
+	const names = await loadDeckNames();
 	renderDecks(names, settings.excludedDecks || []);
 }
 

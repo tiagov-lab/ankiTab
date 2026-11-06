@@ -94,6 +94,10 @@ export function showAnswerControls(names, intervals, onAnswer) {
 	container.hidden = false;
 }
 
+export function cardButtonNames(card) {
+	return buttonNames(card && card.buttons ? card.buttons.length : 2);
+}
+
 export function buttonNames(count) {
 	if (count >= 4) return ["Again", "Hard", "Good", "Easy"];
 	if (count === 3) return ["Again", "Good", "Easy"];

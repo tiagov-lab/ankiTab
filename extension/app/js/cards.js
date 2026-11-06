@@ -10,7 +10,7 @@ import {postToSandbox, setDimmed} from "./sandboxFrame.js"
 import {showToast} from "./toast.js"
 import {showDoneScreen} from "./doneScreen.js"
 import {
-	buttonNames,
+	cardButtonNames,
 	clearDueCounts,
 	fetchDueCounts,
 	setAnswerButtonsDisabled,
@@ -34,40 +34,8 @@ export function getCurrentCard() {
 	return card;
 }
 
-function defaultSettings() {
-	return Object.assign({}, DEFAULT_SETTINGS);
-}
-
-function loadSettings() {
-	return getSettings().then((result) => {
-		settings = Object.assign(defaultSettings(), result);
-		if (card && state === 'question') fetchDueCounts(card.deckName, !!settings.showDueCounts);
-	});
-}
-
 export function batchLimit() {
 	return batch.limit(settings);
-}
-
-function watchSettings() {
-	if (settingsWatched) return;
-	settingsWatched = true;
-	chrome.storage.onChanged.addListener((changes, area) => {
-		if (area !== 'local') return;
-		let refreshCounts = false;
-		let refreshBatch = false;
-		for (const key in changes) {
-			settings[key] = changes[key].newValue;
-			if (key === 'showDueCounts') refreshCounts = true;
-			if (key === 'batchSize') refreshBatch = true;
-		}
-		if (refreshBatch) refreshBatchProgress();
-		if (refreshCounts && card) fetchDueCounts(card.deckName, !!settings.showDueCounts);
-	});
-}
-
-function setTitle(deckName) {
-	document.title = deckName ? "AnkiTab · " + deckName : "AnkiTab";
 }
 
 function refreshBatchProgress() {
@@ -76,19 +44,26 @@ function refreshBatchProgress() {
 	renderBatchProgress(container, batch, settings);
 }
 
-export function currentButtonNames() {
-	return buttonNames(card && card.buttons ? card.buttons.length : 2);
+function watchSettings() {
+	if (settingsWatched) return;
+	settingsWatched = true;
+	chrome.storage.onChanged.addListener((changes, area) => {
+		if (area !== 'local') return;
+		for (const key in changes) settings[key] = changes[key].newValue;
+		if (changes.batchSize) refreshBatchProgress();
+		if (changes.showDueCounts && card) fetchDueCounts(card.deckName, !!settings.showDueCounts);
+	});
 }
 
 export function goodIndex() {
-	return currentButtonNames().indexOf("Good") + 1;
+	return cardButtonNames(card).indexOf("Good") + 1;
 }
 
 async function renderQuestion() {
 	if (!card) return;
 	state = 'question';
 	document.querySelector("#deckName").textContent = card.deckName || "";
-	setTitle(card.deckName);
+	document.title = card.deckName ? "AnkiTab · " + card.deckName : "AnkiTab";
 	showQuestionControls();
 	refreshBatchProgress();
 	renderInSandbox(card, card.question, {answer: false, autoFlip: !!settings.autoFlipChoice});
@@ -100,7 +75,7 @@ export function renderAnswer() {
 	if (state !== 'question' || !card) return;
 	state = 'answer';
 	const nextReviews = Array.isArray(card.nextReviews) ? card.nextReviews : [];
-	showAnswerControls(currentButtonNames(), nextReviews, answerQuestion);
+	showAnswerControls(cardButtonNames(card), nextReviews, answerQuestion);
 	renderInSandbox(card, card.answer, {answer: true});
 	ankiConnectInvoke("guiShowAnswer").catch((e) => {
 		console.warn("AnkiTab: guiShowAnswer failed", e);
@@ -120,7 +95,7 @@ function handleActionError(e, fallbackMessage) {
 
 export async function answerQuestion(answer) {
 	if (state !== 'answer' || !card) return;
-	if (answer < 1 || answer > currentButtonNames().length) return;
+	if (answer < 1 || answer > cardButtonNames(card).length) return;
 	state = 'busy';
 	setAnswerButtonsDisabled(true);
 	setDimmed(true);
@@ -143,7 +118,7 @@ export async function answerQuestion(answer) {
 		showBatchDone();
 		return;
 	}
-	await continueStudy();
+	await startStudy();
 }
 
 // Anki errors while fetching a card (e.g. interleaving off and nothing left to
@@ -159,34 +134,18 @@ function studyError(e) {
 }
 
 export function showBatchDone(opts) {
-	const onBreak = !!opts?.onBreak;
 	showDoneScreen({
 		batch: {
 			count: batch.count,
-			onBreak,
+			onBreak: !!opts?.onBreak,
 			freeUntil: settings.batchFreeUntil,
 			onContinue: () => {
 				batch.keepGoing();
 				hideOverlay();
-				if (onBreak) startStudy();
-				else continueStudy();
+				startStudy();
 			},
 		},
 	});
-}
-
-export async function continueStudy() {
-	state = 'busy';
-	try {
-		const hasDeck = await rotateDeck();
-		if (!hasDeck) return;
-		const next = await getCard();
-		if (!next) return;
-		card = next;
-		await renderQuestion();
-	} catch (e) {
-		studyError(e);
-	}
 }
 
 async function markCurrentDeckEmpty() {
@@ -221,10 +180,7 @@ export async function startStudy() {
 	try {
 		const hasDeck = await rotateDeck();
 		if (!hasDeck) return;
-		const next = await getCard();
-		if (!next) return;
-		card = next;
-		await renderQuestion();
+		if (await getCard()) await renderQuestion();
 	} catch (e) {
 		studyError(e);
 	}
@@ -252,55 +208,50 @@ export async function undo() {
 	try {
 		await ankiConnectInvoke("guiUndo");
 		batch.undoAnswer();
-		const next = await getCard();
-		if (next) {
-			card = next;
-			await renderQuestion();
-		}
+		if (await getCard()) await renderQuestion();
 	} catch (e) {
 		if (e && e.type === 'anki') showToast("nothing to undo");
 		else handleActionError(e);
 	}
 }
 
-export async function suspendCard() {
-	if (!card || state === 'busy') return;
+async function runCardAction(action, onError) {
 	const previousState = state;
 	state = 'busy';
 	try {
+		await action();
+		await startStudy();
+	} catch (e) {
+		state = previousState;
+		onError(e);
+	}
+}
+
+export async function suspendCard() {
+	if (!card || state === 'busy') return;
+	await runCardAction(async () => {
 		await ankiConnectInvoke("suspend", {cards: [card.cardId]});
 		await ankiConnectInvoke("guiDeckReview", {name: card.deckName});
 		showToast("card suspended");
-		await continueStudy();
-	} catch (e) {
-		state = previousState;
-		handleActionError(e, "could not suspend the card");
-	}
+	}, (e) => handleActionError(e, "could not suspend the card"));
 }
 
 export async function buryCard() {
 	if (!card || state === 'busy') return;
-	const previousState = state;
-	state = 'busy';
-	try {
+	await runCardAction(async () => {
 		await ankiConnectInvoke("buryCards", {cards: [card.cardId]});
 		showToast("card buried");
-		await continueStudy();
-	} catch (e) {
-		state = previousState;
-		if (e && (e.type === 'offline' || e.type === 'permission')) {
-			handleActionError(e);
-		} else {
-			showToast("bury isn't supported by AnkiConnect");
-		}
-	}
+	}, (e) => {
+		if (e && (e.type === 'offline' || e.type === 'permission')) handleActionError(e);
+		else showToast("bury isn't supported by AnkiConnect");
+	});
 }
 
 const handleKey = createKeyHandler({
 	state: () => state,
 	showAnswer: renderAnswer,
 	answer: answerQuestion,
-	answerCount: () => currentButtonNames().length,
+	answerCount: () => cardButtonNames(card).length,
 	goodIndex,
 	edit: editNote,
 	undo,
@@ -319,7 +270,8 @@ export default async function start() {
 		keyboardAttached = true;
 	}
 	watchSettings();
-	await loadSettings();
+	settings = Object.assign({}, DEFAULT_SETTINGS, await getSettings());
+	if (card && state === 'question') fetchDueCounts(card.deckName, !!settings.showDueCounts);
 
 	if (new URLSearchParams(location.search).get('blank') === '1') {
 		state = 'busy';
