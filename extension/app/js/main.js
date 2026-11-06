@@ -119,7 +119,13 @@ document.querySelector("#showAnswerBtn").addEventListener("click", () => renderA
 window.addEventListener("message", (event) => {
 	if (!frame || event.source !== frame.contentWindow) return;
 	const data = event.data;
-	if (!data || typeof data !== "object" || data.command !== "key") return;
+	if (!data || typeof data !== "object") return;
+	// A multiple choice card picked every option: show the answer like space does.
+	if (data.command === "showAnswer") {
+		renderAnswer();
+		return;
+	}
+	if (data.command !== "key") return;
 	handleKeyEvent({
 		key: data.key,
 		code: data.code,

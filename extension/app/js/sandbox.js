@@ -151,8 +151,56 @@ function loadExternalScript(src) {
   });
 }
 
+// Multiple choice: once every radio group has an option picked, show the back
+// side without waiting for space. The parent decides whether this is allowed
+// (setting on, question side) and sends it with each render.
+let autoFlip = false;
+let flipTimer = null;
+let flippedThisRender = false;
+
+function cancelAutoFlip() {
+  if (flipTimer !== null) {
+    clearTimeout(flipTimer);
+    flipTimer = null;
+  }
+}
+
+// Radios are grouped by name; unnamed radios are each a group of their own.
+function allRadioGroupsAnswered(container) {
+  const groups = new Map();
+  Array.from(container.querySelectorAll('input[type="radio"]')).forEach((radio, index) => {
+    const key = radio.name ? 'name:' + radio.name : 'anon:' + index;
+    groups.set(key, groups.get(key) || radio.checked);
+  });
+  return groups.size > 0 && Array.from(groups.values()).every(Boolean);
+}
+
+document.addEventListener('change', (event) => {
+  if (!autoFlip || flippedThisRender) return;
+  const target = event.target;
+  if (!target || target.tagName !== 'INPUT' || target.type !== 'radio') return;
+  const container = document.querySelector('#qa');
+  if (!container || !container.contains(target)) return;
+  // Multi-answer cards: the user decides when they are done and presses space.
+  if (container.querySelector('input[type="checkbox"]')) return;
+  if (!allRadioGroupsAnswered(container)) return;
+  // The card's own onInput/onCheck handler saves the selection first; the short
+  // delay also lets the user see the dot before the answer replaces the card.
+  cancelAutoFlip();
+  flipTimer = setTimeout(() => {
+    flipTimer = null;
+    if (!autoFlip || flippedThisRender) return;
+    flippedThisRender = true;
+    window.parent.postMessage({command: 'showAnswer'}, '*');
+  }, 200);
+}, true);
+
 async function render(html, options = {}) {
   const container = document.querySelector('#qa');
+  // A new card (or its back) invalidates any pending auto-flip.
+  cancelAutoFlip();
+  flippedThisRender = false;
+  autoFlip = !options.answer && !!options.autoFlip;
   window.onUpdateHook = [];
   window.onShownHook = [];
   handlerObserver.disconnect();
@@ -215,10 +263,16 @@ function replayAudio() {
   playNext();
 }
 
+// Only inputs that accept text count as editable: the answer's radio and
+// checkbox options also take focus, but typing there must still reach the
+// reviewer shortcuts.
+const NON_TEXT_INPUT_TYPES = ['radio', 'checkbox', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image'];
+
 function isEditable(target) {
   if (!target || !target.tagName) return false;
   const tag = target.tagName.toLowerCase();
-  return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
+  if (tag === 'input') return NON_TEXT_INPUT_TYPES.indexOf((target.type || 'text').toLowerCase()) === -1;
+  return tag === 'textarea' || tag === 'select' || target.isContentEditable;
 }
 
 // The iframe steals focus when the card is clicked, so keyboard input has to be
@@ -245,7 +299,7 @@ window.addEventListener('message', async function(event) {
     applyTheme(event.data.dark);
     break;
   case 'render':
-    window.mutex = render(event.data.html, {answer: !!event.data.answer});
+    window.mutex = render(event.data.html, {answer: !!event.data.answer, autoFlip: !!event.data.autoFlip});
     break;
   case 'replayAudio':
     replayAudio();

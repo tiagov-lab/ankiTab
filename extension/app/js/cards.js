@@ -106,7 +106,10 @@ async function renderInSandbox(content, isAnswer) {
 	const frame = sandbox();
 	if (frame && frame.contentWindow) {
 		frame.contentWindow.postMessage({
-			command: 'render', html, answer: !!isAnswer
+			command: 'render',
+			html,
+			answer: !!isAnswer,
+			autoFlip: !!settings.autoFlipChoice && !isAnswer
 		}, '*');
 		frame.style.opacity = '';
 	}

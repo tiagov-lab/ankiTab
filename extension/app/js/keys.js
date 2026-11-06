@@ -1,14 +1,17 @@
 // Anki-desktop style keyboard handling. The reviewer owns the state machine
 // (question | answer | busy); this module only maps keys to actions.
+// Only inputs that accept text count as editable: the answer's radio and
+// checkbox options also take focus, but typing there must still reach the
+// reviewer shortcuts.
+const NON_TEXT_INPUT_TYPES = ["radio", "checkbox", "button", "submit", "reset", "range", "color", "file", "image"];
+
 export function isEditableTarget(target) {
 	if (!target || !target.tagName) return false;
 	const tag = target.tagName.toLowerCase();
-	return (
-		tag === "input" ||
-		tag === "textarea" ||
-		tag === "select" ||
-		target.isContentEditable === true
-	);
+	if (tag === "input") {
+		return NON_TEXT_INPUT_TYPES.indexOf((target.type || "text").toLowerCase()) === -1;
+	}
+	return tag === "textarea" || tag === "select" || target.isContentEditable === true;
 }
 
 function stop(event) {

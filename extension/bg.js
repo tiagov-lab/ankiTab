@@ -19,6 +19,7 @@ const defaults = {
 	doneFallback: "search",
 	doneSearchUrl: "https://duckduckgo.com/?q=%s",
 	showDueCounts: true,
+	autoFlipChoice: true,
 };
 
 chrome.runtime.onInstalled.addListener(function() {

@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
 	doneFallback: "search",
 	doneSearchUrl: "https://duckduckgo.com/?q=%s",
 	showDueCounts: true,
+	autoFlipChoice: true,
 };
 
 // Returns every setting, with defaults filled in for anything not stored yet.
