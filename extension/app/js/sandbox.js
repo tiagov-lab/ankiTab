@@ -195,48 +195,119 @@ document.addEventListener('change', (event) => {
   }, 200);
 }, true);
 
-async function render(html, options = {}) {
-  const container = document.querySelector('#qa');
-  // A new card (or its back) invalidates any pending auto-flip.
-  cancelAutoFlip();
-  flippedThisRender = false;
-  autoFlip = !options.answer && !!options.autoFlip;
-  window.onUpdateHook = [];
-  window.onShownHook = [];
-  handlerObserver.disconnect();
-  container.innerHTML = html;
-  convertInlineHandlers(container);
-  observeHandlers(container);
+// A card can need finishing after its html is in the document: MathJax has to
+// typeset and images have to decode. Only then is the new content shown, so a
+// flip swaps in one finished paint instead of popping media and raw TeX in.
+const TEX_DELIMITERS = /\\\(|\\\[|\$\$|\\begin\{/;
+const FINISH_TIMEOUT = 250;
 
-  // Scripts inserted via innerHTML don't run; run them in document order.
-  const scripts = Array.from(container.getElementsByTagName('script'));
-  let fireLoadEvents = () => {};
-  const inlineQueue = [];
-  for (const script of scripts) {
-    const type = (script.getAttribute('type') || '').toLowerCase();
-    if (type && !/javascript|ecmascript|^module$/.test(type)) continue; // e.g. text/template, json
-    inlineQueue.push(script);
-  }
-  for (const script of inlineQueue) {
-    if (script.src) {
-      await loadExternalScript(script.src);
-    } else {
-      const fire = withLoadEventCapture(() => runCode(script.textContent, 'inline script'));
-      const prev = fireLoadEvents;
-      fireLoadEvents = () => { prev(); fire(); };
-    }
-  }
-  fireLoadEvents();
-  runHooks(window.onUpdateHook);
-  runHooks(window.onShownHook);
-  typeset();
-  if (options.answer) {
-    // Anki scrolls the answer separator into view after showing the back.
-    setTimeout(() => {
-      const answer = container.querySelector('hr#answer') || container.querySelector('#answer');
-      if (answer) answer.scrollIntoView({block: 'start'});
-    }, 0);
-  }
+// Only MathJax needs the container hidden: it typesets in place, so raw TeX
+// would show for a moment. Images are decoded before the swap instead (see
+// predecodeImages), which keeps the old card on screen rather than a blank.
+function needsFinishing(html) {
+	return TEX_DELIMITERS.test(html);
+}
+
+// Decode the new card's images off-screen before its html replaces the old
+// card. Decoded data URIs are then painted in the same frame as the swap.
+function predecodeImages(html) {
+	const tpl = document.createElement('template');
+	tpl.innerHTML = html;
+	const decodes = Array.from(tpl.content.querySelectorAll('img[src]')).map((elem) => {
+		const img = new Image();
+		img.src = elem.getAttribute('src');
+		return typeof img.decode === 'function' ? img.decode() : Promise.resolve();
+	});
+	if (!decodes.length) return Promise.resolve();
+	return Promise.race([
+		Promise.allSettled(decodes),
+		new Promise((resolve) => setTimeout(resolve, FINISH_TIMEOUT)),
+	]);
+}
+
+// Every render bumps this. An older render that is still awaiting something
+// (scripts, media, typesetting) checks it and stops touching the document.
+let renderToken = 0;
+
+// MathJax is loaded at the end of sandbox.html, so early renders have to retry
+// until it is ready. The promise resolves once typesetting has actually run.
+function typesetAndWait(container) {
+	return new Promise((resolve) => {
+		const attempt = () => {
+			try {
+				MathJax.Hub.Queue(["Typeset", MathJax.Hub, container], resolve);
+			} catch (e) {
+				setTimeout(attempt, 300);
+			}
+		};
+		attempt();
+	});
+}
+
+async function finish(container) {
+	const token = renderToken;
+	const pending = [];
+	if (TEX_DELIMITERS.test(container.innerHTML)) pending.push(typesetAndWait(container));
+	if (!pending.length) return;
+	// A slow or broken asset must never leave the card invisible.
+	await Promise.race([
+		Promise.all(pending),
+		new Promise((resolve) => setTimeout(resolve, FINISH_TIMEOUT)),
+	]);
+	if (token !== renderToken) return; // a newer render owns the container now
+}
+
+async function render(html, options = {}) {
+	const token = ++renderToken;
+	const container = document.querySelector('#qa');
+	// A new card (or its back) invalidates any pending auto-flip.
+	cancelAutoFlip();
+	flippedThisRender = false;
+	autoFlip = !options.answer && !!options.autoFlip;
+	window.onUpdateHook = [];
+	window.onShownHook = [];
+	handlerObserver.disconnect();
+	await predecodeImages(html);
+	if (token !== renderToken) return;
+	// Hide the container only while the new html is being finished; anything
+	// else is complete within this task, so hiding it would be a visible blank.
+	const hide = needsFinishing(html);
+	container.classList.toggle('rendering', hide);
+	container.innerHTML = html;
+	convertInlineHandlers(container);
+	observeHandlers(container);
+
+	// Scripts inserted via innerHTML don't run; run them in document order.
+	const scripts = Array.from(container.getElementsByTagName('script'));
+	let fireLoadEvents = () => {};
+	const inlineQueue = [];
+	for (const script of scripts) {
+		const type = (script.getAttribute('type') || '').toLowerCase();
+		if (type && !/javascript|ecmascript|^module$/.test(type)) continue; // e.g. text/template, json
+		inlineQueue.push(script);
+	}
+	for (const script of inlineQueue) {
+		if (script.src) {
+			await loadExternalScript(script.src);
+			if (token !== renderToken) return;
+		} else {
+			const fire = withLoadEventCapture(() => runCode(script.textContent, 'inline script'));
+			const prev = fireLoadEvents;
+			fireLoadEvents = () => { prev(); fire(); };
+		}
+	}
+	fireLoadEvents();
+	runHooks(window.onUpdateHook);
+	runHooks(window.onShownHook);
+	await finish(container);
+	if (token !== renderToken) return;
+	if (options.answer) {
+		// Anki scrolls the answer separator into view after showing the back.
+		// Scrolling before the reveal keeps the jump invisible.
+		const answer = container.querySelector('hr#answer') || container.querySelector('#answer');
+		if (answer) answer.scrollIntoView({block: 'start'});
+	}
+	container.classList.remove('rendering');
 }
 
 function replayAudio() {
@@ -311,11 +382,3 @@ window.addEventListener('message', async function(event) {
     });
   }
 });
-
-function typeset(){
-  try{
-    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.querySelector('#qa')]);
-  } catch(e){
-    setTimeout(typeset, 300);
-  }
-}

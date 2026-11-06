@@ -78,6 +78,56 @@ async function inlineMediaScripts(html) {
 	return tpl.innerHTML;
 }
 
+// Media referenced by a card (<img src="paste-123.jpg">) only exists inside
+// Anki, so it is fetched through AnkiConnect and inlined as a data URI before
+// the card is posted to the sandbox. Without this the card would paint with a
+// broken image and pop it in later. Promises are cached (not values) so a flip
+// reuses the front's fetches and concurrent requests share one call.
+const MEDIA_CACHE_LIMIT = 200;
+const mediaCache = new Map();
+
+function getMediaDataUri(filename) {
+	const cached = mediaCache.get(filename);
+	if (cached) return cached;
+	const promise = ankiConnectInvoke("retrieveMediaFile", {filename}).then((data) => {
+		if (!data) throw new Error("no media data");
+		const fileExtension = '.' + filename.split('.').pop();
+		return "data:" + (MIME[fileExtension] || "application/octet-stream") + ";base64," + data;
+	}).catch((e) => {
+		// A missing media file must never replace the card.
+		console.warn("AnkiTab: could not load media", filename, e);
+		mediaCache.delete(filename);
+		return null;
+	});
+	mediaCache.set(filename, promise);
+	// Long sessions touch a lot of cards; keep memory bounded.
+	if (mediaCache.size > MEDIA_CACHE_LIMIT) {
+		mediaCache.delete(mediaCache.keys().next().value);
+	}
+	return promise;
+}
+
+// Inline every local src (img, audio, video, source, embed...) as a data URI.
+// Anything that already has a scheme is left alone; a file that cannot be
+// fetched keeps its original src.
+async function resolveMedia(html) {
+	const tpl = document.createElement("template");
+	tpl.innerHTML = html;
+	const elements = Array.from(tpl.content.querySelectorAll("[src]"))
+		.filter((elem) => elem.tagName.toLowerCase() !== "script");
+	await Promise.all(elements.map(async (elem) => {
+		try {
+			const src = elem.getAttribute("src");
+			if (!src || /^[a-z][a-z0-9+.-]*:|^\/\//i.test(src)) return; // remote URL or data URI
+			const dataUri = await getMediaDataUri(decodeURIComponent(src.split(/[?#]/)[0]));
+			if (dataUri) elem.setAttribute("src", dataUri);
+		} catch (e) {
+			console.warn("AnkiTab: could not resolve media", elem.getAttribute("src"), e);
+		}
+	}));
+	return tpl.innerHTML;
+}
+
 let renderSeq = 0;
 
 // main.js sets the iframe's src after this module loads; wait for that page, not
@@ -96,12 +146,9 @@ async function renderInSandbox(content, isAnswer) {
 	const seq = ++renderSeq;
 	const current = getCurrentCard();
 	if (!current) return;
-	const html = await inlineMediaScripts(buildCardHTML(current.css, content));
+	const html = await resolveMedia(await inlineMediaScripts(buildCardHTML(current.css, content)));
 	await frameReady;
 	if (seq !== renderSeq) return; // a newer render (e.g. the answer) started meanwhile
-	// Build the card under an invisible <div> too, which makes it easy to find
-	// the media that has to be fetched from AnkiConnect.
-	document.querySelector("#flashcard").innerHTML = html;
 	postThemeToSandbox();
 	const frame = sandbox();
 	if (frame && frame.contentWindow) {
@@ -113,26 +160,6 @@ async function renderInSandbox(content, isAnswer) {
 		}, '*');
 		frame.style.opacity = '';
 	}
-	retrieveMedia();
-}
-
-function retrieveMedia() {
-	document.querySelector("#flashcard").querySelectorAll("[src]:not(script)").forEach((elem) => {
-		const filename = elem.src.split('/').pop();
-		const fileExtension = '.' + filename.split('.').pop();
-		ankiConnectInvoke("retrieveMediaFile", {filename: decodeURIComponent(filename)}).then((data) => {
-			const newSrc = "data:" + MIME[fileExtension] + ";base64," + data;
-			const frame = sandbox();
-			if (frame && frame.contentWindow) {
-				frame.contentWindow.postMessage({
-					command: 'replaceMedia', oldSrc: filename, newSrc
-				}, '*');
-			}
-		}).catch((e) => {
-			// A missing media file must never replace the card.
-			console.warn("AnkiTab: could not load media", filename, e);
-		});
-	});
 }
 
 function defaultSettings() {
@@ -278,6 +305,12 @@ async function renderQuestion() {
 	showQuestionControls();
 	renderInSandbox(card.question, false);
 	fetchDueCounts(card.deckName);
+	// Warm the media cache with the back side, so flipping does not wait for it.
+	try {
+		resolveMedia(buildCardHTML(card.css, card.answer)).catch(() => {});
+	} catch (e) {
+		// Prefetch is best effort; the answer render resolves its media itself.
+	}
 }
 
 export function renderAnswer() {

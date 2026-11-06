@@ -27,6 +27,14 @@ body.card {
 	min-width: 0;
 }
 
+/* While MathJax typesets a new card the reviewer hides #qa for a frame. visibility is inherited, but a card that sets its own
+   on an element would pop back in early, so the hidden state wins until the
+   finished card is revealed. */
+#qa.rendering,
+#qa.rendering * {
+	visibility: hidden !important;
+}
+
 img {
 	max-width: 100%;
 	max-height: 95vh;
