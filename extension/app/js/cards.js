@@ -17,14 +17,14 @@ import {
 	showAnswerControls,
 	showQuestionControls,
 } from "./answerBar.js"
+import {breakEndsAt, createBatch, isOnBreak, renderBatchProgress} from "./batch.js"
 
 let card = null;
 let state = 'busy'; // 'question' | 'answer' | 'busy'
 let settings = Object.assign({}, DEFAULT_SETTINGS);
 let settingsWatched = false;
 let keyboardAttached = false;
-let batchCount = 0; // cards answered in this tab
-let batchOff = false; // "keep studying" was picked; no more cap in this tab
+const batch = createBatch();
 
 export function getState() {
 	return state;
@@ -46,7 +46,7 @@ function loadSettings() {
 }
 
 export function batchLimit() {
-	return batchOff ? 0 : (Number(settings.batchSize) || 0);
+	return batch.limit(settings);
 }
 
 function watchSettings() {
@@ -61,7 +61,7 @@ function watchSettings() {
 			if (key === 'showDueCounts') refreshCounts = true;
 			if (key === 'batchSize') refreshBatch = true;
 		}
-		if (refreshBatch) renderBatchProgress();
+		if (refreshBatch) refreshBatchProgress();
 		if (refreshCounts && card) fetchDueCounts(card.deckName, !!settings.showDueCounts);
 	});
 }
@@ -70,32 +70,10 @@ function setTitle(deckName) {
 	document.title = deckName ? "AnkiTab · " + deckName : "AnkiTab";
 }
 
-export function renderBatchProgress() {
+function refreshBatchProgress() {
 	const container = document.querySelector("#batchProgress");
 	if (!container) return;
-	const limit = batchLimit();
-	if (limit <= 0) {
-		container.replaceChildren();
-		container.hidden = true;
-		container.removeAttribute("title");
-		container.classList.remove("text");
-		return;
-	}
-	container.replaceChildren();
-	container.classList.toggle("text", limit > 12);
-	if (limit <= 12) {
-		for (let index = 0; index < limit; index++) {
-			const dot = document.createElement("span");
-			dot.className = "batch-dot";
-			if (index < batchCount) dot.classList.add("filled");
-			if (index === batchCount) dot.classList.add("current");
-			container.appendChild(dot);
-		}
-	} else {
-		container.textContent = (batchCount + 1) + " / " + limit;
-	}
-	container.title = "card " + (batchCount + 1) + " of " + limit + " in this tab";
-	container.hidden = false;
+	renderBatchProgress(container, batch, settings);
 }
 
 export function currentButtonNames() {
@@ -112,7 +90,7 @@ async function renderQuestion() {
 	document.querySelector("#deckName").textContent = card.deckName || "";
 	setTitle(card.deckName);
 	showQuestionControls();
-	renderBatchProgress();
+	refreshBatchProgress();
 	renderInSandbox(card, card.question, {answer: false, autoFlip: !!settings.autoFlipChoice});
 	fetchDueCounts(card.deckName, !!settings.showDueCounts);
 	prefetchAnswer(card);
@@ -156,12 +134,9 @@ export async function answerQuestion(answer) {
 		handleActionError(e, "could not save the answer");
 		return;
 	}
-	batchCount++;
-	const limit = batchLimit();
-	if (limit > 0 && batchCount >= limit) {
-		const breakMinutes = Number(settings.batchBreakMinutes) || 0;
-		if (breakMinutes > 0) {
-			const freeUntil = Date.now() + breakMinutes * 60000;
+	if (batch.recordAnswer(settings)) {
+		const freeUntil = breakEndsAt(settings, Date.now());
+		if (freeUntil > 0) {
 			settings.batchFreeUntil = freeUntil;
 			storageSet({batchFreeUntil: freeUntil}).catch(() => {});
 		}
@@ -187,11 +162,11 @@ export function showBatchDone(opts) {
 	const onBreak = !!opts?.onBreak;
 	showDoneScreen({
 		batch: {
-			count: batchCount,
+			count: batch.count,
 			onBreak,
 			freeUntil: settings.batchFreeUntil,
 			onContinue: () => {
-				batchOff = true;
+				batch.keepGoing();
 				hideOverlay();
 				if (onBreak) startStudy();
 				else continueStudy();
@@ -276,7 +251,7 @@ export async function undo() {
 	if (state === 'busy') return;
 	try {
 		await ankiConnectInvoke("guiUndo");
-		batchCount = Math.max(0, batchCount - 1);
+		batch.undoAnswer();
 		const next = await getCard();
 		if (next) {
 			card = next;
@@ -353,7 +328,7 @@ export default async function start() {
 		return;
 	}
 
-	if ((Number(settings.batchSize) || 0) > 0 && Date.now() < (Number(settings.batchFreeUntil) || 0)) {
+	if (isOnBreak(settings, Date.now())) {
 		state = 'busy';
 		clearDueCounts();
 		showBatchDone({onBreak: true});
