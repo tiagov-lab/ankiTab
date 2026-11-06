@@ -6,6 +6,7 @@ import startStudy, {
 	suspendCard,
 } from "./cards.js"
 import ankiConnectInvoke from "../../libs/ankiConnect.js"
+import {postTheme} from "./sandboxFrame.js"
 import {showToast} from "./toast.js"
 
 document.querySelector("base").href = "/";
@@ -22,12 +23,6 @@ function themeName(value) {
 	if (value === 'light') return 'Light';
 	if (value === 'dark') return 'Dark';
 	return 'System';
-}
-
-function postTheme() {
-	if (frame && frame.contentWindow) {
-		frame.contentWindow.postMessage({command: 'theme', dark: theme.isDark()}, '*');
-	}
 }
 
 function updateThemeButton() {

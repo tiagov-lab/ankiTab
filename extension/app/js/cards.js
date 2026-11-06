@@ -1,12 +1,12 @@
 import rotateDeck from "./extended/rotateDeck.js"
-import MIME from "./mimeTypes.js"
 import ankiConnectInvoke from "../../libs/ankiConnect.js"
 import {storageGet, storageSet} from "../../libs/chromeApi.js"
 import {hideOverlay} from "../../libs/dom.js"
 import {DEFAULT_SETTINGS, getSettings} from "../../libs/settings.js"
-import {isRemoteUrl, mediaFilename} from "../../libs/url.js"
 import {createKeyHandler} from "./keys.js"
 import {showOffline} from "./offlineScreen.js"
+import {prefetchAnswer, renderInSandbox} from "./renderCard.js"
+import {postToSandbox, setDimmed} from "./sandboxFrame.js"
 import {showToast} from "./toast.js"
 import {showDoneScreen} from "./doneScreen.js"
 
@@ -19,218 +19,12 @@ let dueCountRequest = 0;
 let batchCount = 0; // cards answered in this tab
 let batchOff = false; // "keep studying" was picked; no more cap in this tab
 
-const $ = (selector) => document.querySelector(selector);
-
 export function getState() {
 	return state;
 }
 
 export function getCurrentCard() {
 	return card;
-}
-
-function sandbox() {
-	return document.querySelector("#flashcardSandbox");
-}
-
-function postThemeToSandbox() {
-	const frame = sandbox();
-	if (!frame || !frame.contentWindow) return;
-	const dark = window.ankitabTheme
-		? window.ankitabTheme.isDark()
-		: document.documentElement.classList.contains('dark-theme');
-	frame.contentWindow.postMessage({command: 'theme', dark}, '*');
-}
-
-export function bufferToText(base64) {
-	return new TextDecoder().decode(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
-}
-
-export function replaceAudioTags(html) {
-	return html.replace(/\[sound:([^\]]*)\]/g, (match, filename) => {
-		let mediaType = "audio";
-		const extension = '.' + filename.split('.').pop();
-		const mimeType = (MIME[extension] || "").split('/')[0];
-		if (mimeType == "video")
-			mediaType = "video";
-		return '<' + mediaType + ' controls src="' + filename + '"></' + mediaType + '>';
-	});
-}
-
-export function buildCardHTML(css, content) {
-	return "<style>" + css + "</style>" + replaceAudioTags(content);
-}
-
-// Card templates sometimes load helpers from Anki's media folder (<script src="_mc.js">).
-// Those files only exist inside Anki, so fetch them through AnkiConnect and inline them.
-export async function inlineMediaScripts(html) {
-	const tpl = document.createElement("template");
-	tpl.innerHTML = html;
-	const scripts = Array.from(tpl.content.querySelectorAll("script[src]"));
-	await Promise.all(scripts.map(async (script) => {
-		const src = script.getAttribute("src");
-		if (isRemoteUrl(src)) return; // remote URL, leave it
-		try {
-			const data = await ankiConnectInvoke("retrieveMediaFile", {filename: mediaFilename(src)});
-			if (data) {
-				script.removeAttribute("src");
-				script.textContent = bufferToText(data);
-			}
-		} catch (e) {
-			console.warn("AnkiTab: could not load media script", src, e);
-		}
-	}));
-	return tpl.innerHTML;
-}
-
-// Media referenced by a card (<img src="paste-123.jpg">) only exists inside
-// Anki, so it is fetched through AnkiConnect and inlined as a data URI before
-// the card is posted to the sandbox. Without this the card would paint with a
-// broken image and pop it in later. Promises are cached (not values) so a flip
-// reuses the front's fetches and concurrent requests share one call.
-const MEDIA_CACHE_LIMIT = 200;
-const mediaCache = new Map();
-
-export function getMediaDataUri(filename) {
-	const cached = mediaCache.get(filename);
-	if (cached) return cached;
-	const promise = ankiConnectInvoke("retrieveMediaFile", {filename}).then((data) => {
-		if (!data) throw new Error("no media data");
-		const fileExtension = '.' + filename.split('.').pop();
-		return "data:" + (MIME[fileExtension] || "application/octet-stream") + ";base64," + data;
-	}).catch((e) => {
-		// A missing media file must never replace the card.
-		console.warn("AnkiTab: could not load media", filename, e);
-		mediaCache.delete(filename);
-		return null;
-	});
-	mediaCache.set(filename, promise);
-	// Long sessions touch a lot of cards; keep memory bounded.
-	if (mediaCache.size > MEDIA_CACHE_LIMIT) {
-		mediaCache.delete(mediaCache.keys().next().value);
-	}
-	return promise;
-}
-
-// Inline every local src (img, audio, video, source, embed...) as a data URI.
-// Anything that already has a scheme is left alone; a file that cannot be
-// fetched keeps its original src.
-export async function resolveMedia(html) {
-	const tpl = document.createElement("template");
-	tpl.innerHTML = html;
-	const elements = Array.from(tpl.content.querySelectorAll("[src]"))
-		.filter((elem) => elem.tagName.toLowerCase() !== "script");
-	await Promise.all(elements.map(async (elem) => {
-		try {
-			const src = elem.getAttribute("src");
-			if (!src || isRemoteUrl(src)) return; // remote URL or data URI
-			const dataUri = await getMediaDataUri(mediaFilename(src));
-			if (dataUri) elem.setAttribute("src", dataUri);
-		} catch (e) {
-			console.warn("AnkiTab: could not resolve media", elem.getAttribute("src"), e);
-		}
-	}));
-	return tpl.innerHTML;
-}
-
-// Note types load fonts from Anki's media folder with @font-face
-// (src: url('_yumin.ttf')). Kanji fonts are 5-25 MB each, so inlining them into
-// every card's css would re-send and re-parse them on each render. Instead the
-// local @font-face rules are stripped from the css and each font file is sent to
-// the sandbox once, where it is registered with the FontFace API.
-const FONT_FACE_RULE = /@font-face\s*\{[^}]*\}/gi;
-const sentFonts = new Map(); // "family|filename|weight|style" -> promise
-
-export function cssValue(block, property) {
-	const match = block.match(new RegExp("(?:^|[;{\\s])" + property + "\\s*:\\s*([^;}]+)", "i"));
-	return match ? match[1].trim() : "";
-}
-
-export function extractLocalFontFaces(css) {
-	const faces = [];
-	const stripped = (css || "").replace(FONT_FACE_RULE, (block) => {
-		const family = cssValue(block, "font-family").replace(/^(['"])(.*)\1$/, "$2").trim();
-		const src = cssValue(block, "src");
-		const urls = Array.from(src.matchAll(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi), (m) => m[2].trim());
-		const local = urls.find((url) => !isRemoteUrl(url));
-		if (!family || !local) return block; // remote or data: fonts load on their own
-		const descriptors = {};
-		const weight = cssValue(block, "font-weight");
-		const style = cssValue(block, "font-style");
-		if (weight) descriptors.weight = weight;
-		if (style) descriptors.style = style;
-		faces.push({family, filename: mediaFilename(local), descriptors});
-		return "";
-	});
-	return {css: stripped, faces};
-}
-
-export function base64ToBuffer(base64) {
-	const binary = atob(base64);
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-	return bytes.buffer;
-}
-
-// Resolves once the font has been posted (or failed); the sandbox itself waits
-// for the face to finish loading before it shows a card that uses it.
-export function sendFontToSandbox(face) {
-	const key = [face.family, face.filename, face.descriptors.weight || "", face.descriptors.style || ""].join("|");
-	if (sentFonts.has(key)) return sentFonts.get(key);
-	const promise = ankiConnectInvoke("retrieveMediaFile", {filename: face.filename}).then(async (data) => {
-		if (!data) throw new Error("no media data");
-		const buffer = base64ToBuffer(data);
-		await frameReady;
-		const frame = sandbox();
-		if (!frame || !frame.contentWindow) throw new Error("no sandbox");
-		frame.contentWindow.postMessage({command: "font", key, family: face.family, descriptors: face.descriptors, data: buffer}, "*", [buffer]);
-	}).catch((e) => {
-		console.warn("AnkiTab: could not load font", face.filename, e);
-		sentFonts.delete(key);
-	});
-	sentFonts.set(key, promise);
-	return promise;
-}
-
-export function prepareCardCss(css) {
-	const {css: stripped, faces} = extractLocalFontFaces(css);
-	return {css: stripped, fonts: Promise.all(faces.map(sendFontToSandbox))};
-}
-
-let renderSeq = 0;
-
-// main.js sets the iframe's src after this module loads; wait for that page, not
-// the initial about:blank, before posting cards to it.
-const frameReady = new Promise((resolve) => {
-	const frame = document.querySelector("#flashcardSandbox");
-	if (!frame) return resolve();
-	frame.addEventListener("load", function onLoad() {
-		if (!frame.getAttribute("src")) return;
-		frame.removeEventListener("load", onLoad);
-		resolve();
-	});
-});
-
-async function renderInSandbox(content, isAnswer) {
-	const seq = ++renderSeq;
-	const current = getCurrentCard();
-	if (!current) return;
-	const prepared = prepareCardCss(current.css);
-	const html = await resolveMedia(await inlineMediaScripts(buildCardHTML(prepared.css, content)));
-	await prepared.fonts;
-	await frameReady;
-	if (seq !== renderSeq) return; // a newer render (e.g. the answer) started meanwhile
-	postThemeToSandbox();
-	const frame = sandbox();
-	if (frame && frame.contentWindow) {
-		frame.contentWindow.postMessage({
-			command: 'render',
-			html,
-			answer: !!isAnswer,
-			autoFlip: !!settings.autoFlipChoice && !isAnswer
-		}, '*');
-		frame.style.opacity = '';
-	}
 }
 
 function defaultSettings() {
@@ -410,14 +204,9 @@ async function renderQuestion() {
 	setTitle(card.deckName);
 	showQuestionControls();
 	renderBatchProgress();
-	renderInSandbox(card.question, false);
+	renderInSandbox(card, card.question, {answer: false, autoFlip: !!settings.autoFlipChoice});
 	fetchDueCounts(card.deckName);
-	// Warm the media cache with the back side, so flipping does not wait for it.
-	try {
-		resolveMedia(buildCardHTML(prepareCardCss(card.css).css, card.answer)).catch(() => {});
-	} catch (e) {
-		// Prefetch is best effort; the answer render resolves its media itself.
-	}
+	prefetchAnswer(card);
 }
 
 export function renderAnswer() {
@@ -425,7 +214,7 @@ export function renderAnswer() {
 	state = 'answer';
 	document.querySelector("#questionControls").hidden = true;
 	buildAnswerButtons();
-	renderInSandbox(card.answer, true);
+	renderInSandbox(card, card.answer, {answer: true});
 	ankiConnectInvoke("guiShowAnswer").catch((e) => {
 		console.warn("AnkiTab: guiShowAnswer failed", e);
 	});
@@ -453,13 +242,12 @@ export async function answerQuestion(answer) {
 	if (answer < 1 || answer > currentButtonNames().length) return;
 	state = 'busy';
 	setAnswerButtonsDisabled(true);
-	const frame = sandbox();
-	if (frame) frame.style.opacity = '0.4';
+	setDimmed(true);
 
 	try {
 		await ankiConnectInvoke("guiAnswerCard", {ease: answer});
 	} catch (e) {
-		if (frame) frame.style.opacity = '';
+		setDimmed(false);
 		state = 'answer';
 		setAnswerButtonsDisabled(false);
 		handleActionError(e, "could not save the answer");
@@ -578,10 +366,7 @@ export async function editNote() {
 }
 
 export function replayAudio() {
-	const frame = sandbox();
-	if (frame && frame.contentWindow) {
-		frame.contentWindow.postMessage({command: 'replayAudio'}, '*');
-	}
+	postToSandbox({command: 'replayAudio'});
 }
 
 export async function undo() {
